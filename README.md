@@ -1,15 +1,26 @@
 # Online Card Game
 
-Online Card Game is a cooperative poker-combo roguelite for one to four players. It is an original game with a tactile voxel-style 3D table, server-authoritative rooms, reconnectable sessions, house-player support, procedural sound, and responsive keyboard/touch controls.
+Online Card Game is an original multiplayer poker-engine roguelite for one to four players. It combines a tactile voxel-style 3D table with server-authoritative rooms, reconnectable sessions, house-player support, procedural sound, and responsive keyboard, pointer, and touch controls.
 
 ## Game loop
 
-- Each player receives eight cards, three scoring hands, and two discards per contract.
-- Poker hands score `chips × multiplier` into a shared target.
-- Playing a different hand type than the previous player builds an echo chain worth up to `×1.75`.
-- Clearing a contract lets every player add one permanent relic to their own scoring machine.
+- Each player receives eight cards, three scoring hands, and two discards per round.
+- Poker hands score `chips × multiplier`. Changing the previous hand type builds a shared echo chain worth up to `×1.75`.
+- Cooperative contracts combine every player's score against an escalating target.
+- Table Versus gives every seat the same hand budget. The highest personal score wins the round, and the first player to three round wins takes the match.
+- After each successful contract or versus round, every player installs one persistent part in a five-slot engine.
+- Engine parts are feeders, patterns, rhythms, and payoffs. They log cards across hands, store charge, scale permanently, and fire multiplicative effects.
+- Once all five engine slots are occupied, adding a part requires retiring an installed one; its stored state leaves with it.
 - Every third round is a boss contract with a hostile house rule.
 - If a player disconnects, the server preserves their seat and temporarily pilots their remaining hands so the table cannot deadlock.
+
+## Hand management
+
+- Rank sort orders cards from high to low and keeps equal ranks grouped by suit.
+- Suit sort groups spades, hearts, clubs, and diamonds, with ranks ordered inside each suit.
+- Drag any card across the hand to create a persistent custom order.
+- Selected cards stay selected when sorting, dragging, dealing replacements, or switching sort modes.
+- Number keys always map to the cards' current visual order.
 
 ## Local development
 
@@ -35,9 +46,10 @@ npm start
 ```sh
 npm test
 npm run qa
+npm run qa:versus
 ```
 
-The QA script expects a built server running at `http://localhost:8080`. It opens two isolated browser sessions, creates and joins a room, adds a house player, plays through a contract, chooses relics, and verifies the second round begins. Set `QA_URL` or `CHROME_PATH` to override its defaults.
+The QA scripts expect a built server running at `http://localhost:8080`. The browser pass opens isolated sessions, validates responsive layout and hand-sort controls, plays a cooperative contract through engine installation, and completes a two-player versus round. The versus protocol pass plays an entire first-to-three match and verifies persistent engines, win tallies, and the final match event. Set `QA_URL`, `QA_WS_URL`, or `CHROME_PATH` to override their defaults.
 
 ## Deployment
 
@@ -54,6 +66,9 @@ The Vite build uses relative asset paths, so `dist/` can also be embedded under 
 - `1`–`8`: select or unselect a card
 - `Enter`: play the selected hand
 - `D`: discard the selected cards
+- `R`: sort the hand by rank
+- `S`: sort the hand by suit
+- Drag a card: switch to a custom hand order
 
 ## License
 

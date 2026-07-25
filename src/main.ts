@@ -1,5 +1,12 @@
 import "./style.css";
-import { HANDS, RELICS, scoreHand } from "../shared/game";
+import {
+  HANDS,
+  MAX_ENGINE_SLOTS,
+  RELICS,
+  scoreHand,
+  VERSUS_WINS_TO_MATCH
+} from "../shared/game";
+import { moveCard, sortHand, type HandSortMode } from "../shared/sort";
 import type {
   ClientMessage,
   GameEvent,
@@ -41,16 +48,27 @@ const lobbyFootnote = element<HTMLElement>("lobby-footnote");
 const readyButton = element<HTMLButtonElement>("ready-button");
 const readyStatus = element<HTMLElement>("ready-status");
 const relicChoices = element<HTMLElement>("relic-choices");
+const engineBench = element<HTMLElement>("engine-bench");
 const clearStamp = element<HTMLElement>("clear-stamp");
 const restartButton = element<HTMLButtonElement>("restart-button");
 const restartFootnote = element<HTMLElement>("restart-footnote");
 const gameoverCopy = element<HTMLElement>("gameover-copy");
 const roundsCleared = element<HTMLElement>("rounds-cleared");
+const roundsLabel = element<HTMLElement>("rounds-label");
 const runScore = element<HTMLElement>("run-score");
+const scoreLabel = element<HTMLElement>("score-label");
+const gameoverTitle = element<HTMLElement>("gameover-title");
+const gameoverEyebrow = element<HTMLElement>("gameover-eyebrow");
+const failureSealTop = element<HTMLElement>("failure-seal-top");
+const failureSealBottom = element<HTMLElement>("failure-seal-bottom");
+const roundKicker = element<HTMLElement>("round-kicker");
 const roundLabel = element<HTMLElement>("round-label");
 const roundType = element<HTMLElement>("round-type");
+const scoreInstrument = element<HTMLElement>("score-instrument");
 const teamScore = element<HTMLElement>("team-score");
 const targetScore = element<HTMLElement>("target-score");
+const targetWrap = element<HTMLElement>("target-wrap");
+const instrumentTitle = element<HTMLElement>("instrument-title");
 const scorePercent = element<HTMLElement>("score-percent");
 const scoreFill = element<HTMLElement>("score-fill");
 const chainReadout = element<HTMLElement>("chain-readout");
@@ -73,6 +91,13 @@ const messageHand = element<HTMLElement>("message-hand");
 const messageChips = element<HTMLElement>("message-chips");
 const messageMult = element<HTMLElement>("message-mult");
 const messageTotal = element<HTMLElement>("message-total");
+const messageEngine = element<HTMLElement>("message-engine");
+const modeSelector = element<HTMLElement>("mode-selector");
+const modeCooperative = element<HTMLButtonElement>("mode-cooperative");
+const modeVersus = element<HTMLButtonElement>("mode-versus");
+const sortLabel = element<HTMLElement>("sort-label");
+const sortRank = element<HTMLButtonElement>("sort-rank");
+const sortSuit = element<HTMLButtonElement>("sort-suit");
 const toastStack = element<HTMLElement>("toast-stack");
 const connectionFlag = element<HTMLElement>("connection-flag");
 
@@ -94,6 +119,10 @@ let manualClose = false;
 let connecting = false;
 let calloutTimer: number | undefined;
 let lastEventNumber = 0;
+let sortMode: HandSortMode =
+  localStorage.getItem("ocg-hand-sort") === "suit" ? "suit" : "rank";
+let manualHandOrder: string[] = [];
+let replacementId: string | null = null;
 
 playerNameInput.value = playerName;
 
@@ -146,6 +175,74 @@ function relicColor(relic: RelicDefinition): string {
     green: "#5f9182",
     blue: "#6e8eab"
   }[relic.tone];
+}
+
+function orderedHand() {
+  if (!room) return [];
+  const ordered = sortHand(room.hand, sortMode, manualHandOrder);
+  manualHandOrder = ordered.map((card) => card.id);
+  return ordered;
+}
+
+function applyHandSort(mode: Exclude<HandSortMode, "manual">): void {
+  if (!room) return;
+  sortMode = mode;
+  localStorage.setItem("ocg-hand-sort", mode);
+  manualHandOrder = sortHand(room.hand, mode).map((card) => card.id);
+  audio.play("deal");
+  scene.setHand(orderedHand(), selected);
+  renderSortControls();
+  updateSelectionPreview();
+}
+
+function reorderHand(cardId: string, toIndex: number, finished: boolean): void {
+  if (!room || room.phase !== "playing") return;
+  const current = orderedHand().map((card) => card.id);
+  sortMode = "manual";
+  manualHandOrder = moveCard(current, cardId, toIndex);
+  scene.setHand(orderedHand(), selected);
+  renderSortControls();
+  if (finished) {
+    audio.play("select");
+    showToast("Custom hand order set.");
+  }
+}
+
+function engineReadout(id: string, value: number): { label: string; progress: number } {
+  if (id === "brass-knuckle") {
+    return { label: `${value} calibration${value === 1 ? "" : "s"} · +${(2 + value * 0.5).toFixed(1)} mult`, progress: Math.min(1, value / 6) };
+  }
+  if (id === "red-lens") {
+    return { label: `${value % 10}/10 hearts · +${8 + Math.floor(value / 10) * 2} each`, progress: (value % 10) / 10 };
+  }
+  if (id === "stone-index") {
+    return { label: `${value} trigger${value === 1 ? "" : "s"} · +${3 + value} mult`, progress: Math.min(1, value / 5) };
+  }
+  if (id === "echo-coil") {
+    return { label: `${value}/3 charge to ×2`, progress: value / 3 };
+  }
+  if (id === "crown-wire") {
+    return { label: `${value % 6}/6 faces · +${7 + Math.floor(value / 6) * 2} each`, progress: (value % 6) / 6 };
+  }
+  if (id === "black-key") {
+    return { label: `+${Math.floor(value / 5)} mult · ${value % 5}/5 spades`, progress: (value % 5) / 5 };
+  }
+  if (id === "green-felt") {
+    return { label: `${value} flush${value === 1 ? "" : "es"} · +${45 + value * 15} chips`, progress: Math.min(1, value / 4) };
+  }
+  if (id === "ace-bearing") {
+    return { label: `${value}/3 aces to ×2.25`, progress: value / 3 };
+  }
+  if (id === "short-circuit") {
+    return { label: `${value} short-hand streak · next +${4 + value} mult`, progress: Math.min(1, value / 4) };
+  }
+  if (id === "double-clutch") {
+    return { label: `${value} trigger${value === 1 ? "" : "s"} · +${60 + value * 20} chips`, progress: Math.min(1, value / 4) };
+  }
+  if (id === "odd-gear") {
+    return { label: `${value % 8}/8 odds · +${6 + Math.floor(value / 8) * 2} each`, progress: (value % 8) / 8 };
+  }
+  return { label: "Armed for your final hand · ×1.75", progress: 1 };
 }
 
 function showToast(message: string, error = false): void {
@@ -289,6 +386,9 @@ function handleServerMessage(message: ServerMessage): void {
     sessionId = message.sessionId;
     roomCode = message.roomCode;
     room = message.state;
+    manualHandOrder = [];
+    replacementId = null;
+    manualHandOrder = orderedHand().map((card) => card.id);
     lastEventNumber = room.eventNumber;
     saveSession();
     setEntryStatus("");
@@ -299,7 +399,16 @@ function handleServerMessage(message: ServerMessage): void {
   }
 
   if (message.type === "state") {
+    const previousRound = room?.round;
+    const previousPhase = room?.phase;
     room = message.state;
+    if (previousRound && previousRound !== room.round) {
+      sortMode = localStorage.getItem("ocg-hand-sort") === "suit" ? "suit" : "rank";
+      manualHandOrder = [];
+      replacementId = null;
+    }
+    if (previousPhase !== room.phase && room.phase === "intermission") replacementId = null;
+    manualHandOrder = orderedHand().map((card) => card.id);
     for (const id of [...selected]) {
       if (!room.hand.some((card) => card.id === id)) selected.delete(id);
     }
@@ -337,7 +446,8 @@ function handleGameEvent(event: GameEvent): void {
 
   if (event.kind === "hand-played") {
     if (event.playerId === clientId) selected.clear();
-    audio.play(event.score.total >= 450 ? "big-score" : "score");
+    const engineFired = event.score.enginePulses.some((pulse) => pulse.kind === "fire");
+    audio.play(event.score.total >= 450 || engineFired ? "big-score" : "score");
     showScoreCallout(event);
     if (event.playerId !== clientId) {
       showToast(`${event.playerName} played ${event.score.handLabel} for ${format(event.score.total)}.`);
@@ -355,14 +465,29 @@ function handleGameEvent(event: GameEvent): void {
     audio.play("deal");
     showToast(
       event.boss
-        ? `Boss contract: ${event.boss.name}. ${event.boss.rule}`
-        : `Contract ${event.round} is live. Target ${format(event.target)}.`
+        ? `${room?.mode === "versus" ? "Boss showdown" : "Boss contract"}: ${event.boss.name}. ${event.boss.rule}`
+        : room?.mode === "versus"
+          ? `Versus round ${event.round} is live. Highest score takes the win.`
+          : `Contract ${event.round} is live. Target ${format(event.target)}.`
     );
   }
 
   if (event.kind === "round-won") {
     audio.play("win");
-    showToast(`Contract ${event.round} cleared at ${format(event.score)}.`);
+    if (event.mode === "versus") {
+      const names = event.winnerIds
+        .map((id) => room?.players.find((player) => player.id === id)?.name)
+        .filter(Boolean)
+        .join(" and ");
+      showToast(`${names || "The leader"} won round ${event.round} with ${format(event.score)}.`);
+    } else {
+      showToast(`Contract ${event.round} cleared at ${format(event.score)}.`);
+    }
+  }
+
+  if (event.kind === "match-won") {
+    audio.play("win");
+    showToast(`${event.winnerNames.join(" and ")} won the versus match.`);
   }
 
   if (event.kind === "round-lost") {
@@ -378,8 +503,13 @@ function handleGameEvent(event: GameEvent): void {
     showToast(`${event.playerName} left the table.`);
   }
 
-  if (event.kind === "relic-picked" && event.playerId === clientId) {
-    audio.play("relic");
+  if (event.kind === "relic-picked") {
+    if (event.playerId === clientId) audio.play("relic");
+    if (event.replacedRelicId && event.playerId === clientId) {
+      const removed = relicById(event.replacedRelicId)?.name || "Old part";
+      const installed = relicById(event.relicId)?.name || "New part";
+      showToast(`${removed} retired. ${installed} installed.`);
+    }
   }
 }
 
@@ -395,6 +525,14 @@ function showScoreCallout(event: Extract<GameEvent, { kind: "hand-played" }>): v
       ? format(event.score.finalMultiplier)
       : event.score.finalMultiplier.toFixed(2);
   messageTotal.textContent = format(event.score.total);
+  messageEngine.innerHTML = event.score.enginePulses
+    .slice(0, 3)
+    .map(
+      (pulse) =>
+        `<span class="engine-pulse is-${pulse.kind}"><b>${safe(pulse.label)}</b> ${safe(pulse.detail)}</span>`
+    )
+    .join("");
+  messageEngine.classList.toggle("is-hidden", event.score.enginePulses.length === 0);
   tableMessage.classList.add("is-showing");
   calloutTimer = window.setTimeout(() => tableMessage.classList.remove("is-showing"), 2400);
 }
@@ -402,23 +540,54 @@ function showScoreCallout(event: Extract<GameEvent, { kind: "hand-played" }>): v
 function render(): void {
   if (!room) return;
   scene.setMode(room.phase);
-  scene.setHand(room.hand, selected);
+  scene.setHand(orderedHand(), selected);
   scene.setPlayers(room.players, clientId);
   renderHud();
   renderLedger();
   renderRelics();
+  renderSortControls();
   renderModal();
   updateSelectionPreview();
 }
 
 function renderHud(): void {
   if (!room) return;
-  const percent = room.target ? Math.min(100, (room.teamScore / room.target) * 100) : 0;
+  const self = currentPlayer();
+  const versusLeader = Math.max(0, ...room.players.map((player) => player.roundScore));
+  const percent =
+    room.mode === "versus"
+      ? versusLeader
+        ? Math.min(100, ((self?.roundScore ?? 0) / versusLeader) * 100)
+        : 0
+      : room.target
+        ? Math.min(100, (room.teamScore / room.target) * 100)
+        : 0;
   roundLabel.textContent = `Round ${room.round}`;
-  roundType.textContent = room.boss ? "Boss contract" : "Open table";
-  teamScore.textContent = format(room.teamScore);
-  targetScore.textContent = format(room.target);
-  scorePercent.textContent = `${Math.round(percent)}%`;
+  roundKicker.textContent = room.mode === "versus" ? "Match" : "Contract";
+  roundType.textContent =
+    room.mode === "versus"
+      ? room.boss
+        ? "Boss showdown"
+        : "Table versus"
+      : room.boss
+        ? "Boss contract"
+        : "Open table";
+  instrumentTitle.textContent = room.mode === "versus" ? "Round leader" : "Shared score";
+  scoreInstrument.setAttribute(
+    "aria-label",
+    room.mode === "versus" ? "Versus round leader" : "Shared contract score"
+  );
+  teamScore.textContent = format(room.mode === "versus" ? versusLeader : room.teamScore);
+  if (targetWrap.firstChild) targetWrap.firstChild.textContent = room.mode === "versus" ? "" : "/ ";
+  targetScore.textContent = room.mode === "versus" ? "TOP SCORE" : format(room.target);
+  scorePercent.textContent =
+    room.mode === "versus"
+      ? versusLeader === 0
+        ? "RACE"
+        : (self?.roundScore ?? 0) === versusLeader
+          ? "LEAD"
+          : `−${format(versusLeader - (self?.roundScore ?? 0))}`
+      : `${Math.round(percent)}%`;
   scoreFill.style.width = `${percent}%`;
   chainValue.textContent = room.chain ? `×${(1 + room.chain * 0.15).toFixed(2)}` : "Quiet";
   chainReadout.querySelectorAll(".chain-cells i").forEach((cell, index) => {
@@ -432,7 +601,6 @@ function renderHud(): void {
     bossRule.textContent = room.boss.rule;
   }
 
-  const self = currentPlayer();
   handsCount.textContent = `${self?.handsLeft ?? 0} left`;
   discardCount.textContent = `${self?.discardsLeft ?? 0} left`;
 }
@@ -440,7 +608,7 @@ function renderHud(): void {
 function renderLedger(): void {
   if (!room) return;
   playerLedger.innerHTML = `
-    <div class="ledger-heading"><span>Table ledger</span><span>${room.players.length}/4</span></div>
+    <div class="ledger-heading"><span>${room.mode === "versus" ? "Versus ledger" : "Table ledger"}</span><span>${room.players.length}/4</span></div>
     ${room.players
       .map((player) => {
         const status = !player.connected
@@ -449,7 +617,7 @@ function renderLedger(): void {
             ? `${player.handsLeft} hand${player.handsLeft === 1 ? "" : "s"} · house`
             : `${player.handsLeft} hand${player.handsLeft === 1 ? "" : "s"} left`;
         return `
-          <div class="player-row${player.id === clientId ? " is-self" : ""}" style="--seat-color:${player.color}">
+          <div class="player-row${player.id === clientId ? " is-self" : ""}${room!.roundWinnerIds.includes(player.id) ? " is-round-winner" : ""}" style="--seat-color:${player.color}">
             <i class="player-color"></i>
             <div class="player-info">
               <strong>${safe(player.name)}${player.id === clientId ? " · you" : ""}</strong>
@@ -457,7 +625,7 @@ function renderLedger(): void {
             </div>
             <div class="player-tally">
               <b>${format(player.roundScore)}</b>
-              <span>this round</span>
+              <span>${room!.mode === "versus" ? `${player.roundWins}/${VERSUS_WINS_TO_MATCH} wins` : "this round"}</span>
             </div>
           </div>
         `;
@@ -468,22 +636,39 @@ function renderLedger(): void {
 
 function renderRelics(): void {
   if (!room) return;
-  relicRack.innerHTML = room.ownRelics
-    .map((id) => {
+  relicRack.innerHTML = Array.from({ length: MAX_ENGINE_SLOTS }, (_, index) => {
+      const id = room!.ownRelics[index];
+      if (!id) {
+        return `<div class="rack-relic is-empty" aria-label="Empty engine slot ${index + 1}"><span>0${index + 1}</span></div>`;
+      }
       const relic = relicById(id);
       if (!relic) return "";
       const ink = relic.tone === "black" ? "#d7c79e" : "#18241f";
+      const state = engineReadout(id, room!.ownEngineState[id] ?? 0);
       return `
         <div
           class="rack-relic"
           tabindex="0"
           style="--relic-tone:${relicColor(relic)};--relic-ink:${ink}"
-          data-label="${safe(`${relic.name}: ${relic.description}`)}"
-          aria-label="${safe(`${relic.name}. ${relic.description}`)}"
-        ></div>
+          data-label="${safe(`${relic.name}: ${state.label}. ${relic.description}`)}"
+          aria-label="${safe(`${relic.name}. ${state.label}. ${relic.description}`)}"
+        >
+          <span class="rack-category">${safe(relic.category.slice(0, 1).toUpperCase())}</span>
+          <span class="rack-progress"><i style="width:${Math.max(4, state.progress * 100)}%"></i></span>
+        </div>
       `;
     })
     .join("");
+}
+
+function renderSortControls(): void {
+  const rankActive = sortMode === "rank";
+  const suitActive = sortMode === "suit";
+  sortRank.classList.toggle("is-active", rankActive);
+  sortSuit.classList.toggle("is-active", suitActive);
+  sortRank.setAttribute("aria-pressed", String(rankActive));
+  sortSuit.setAttribute("aria-pressed", String(suitActive));
+  sortLabel.textContent = sortMode === "manual" ? "Custom order" : "Sort hand";
 }
 
 function renderModal(): void {
@@ -511,6 +696,10 @@ function renderLobby(): void {
   const self = currentPlayer();
   const isHost = Boolean(self?.host);
   lobbyCode.textContent = room.code;
+  modeCooperative.classList.toggle("is-active", room.mode === "cooperative");
+  modeVersus.classList.toggle("is-active", room.mode === "versus");
+  modeCooperative.disabled = !isHost;
+  modeVersus.disabled = !isHost;
   seatList.innerHTML = Array.from({ length: 4 }, (_, index) => {
     const player = room!.players[index];
     if (!player) {
@@ -540,19 +729,64 @@ function renderLobby(): void {
   addBotButton.classList.toggle("is-hidden", !isHost);
   addBotButton.disabled = room.players.length >= 4;
   startButton.classList.toggle("is-hidden", !isHost);
+  startButton.disabled = room.mode === "versus" && room.players.length < 2;
+  startButton.textContent =
+    room.mode === "versus" ? "Start versus match" : "Deal the first contract";
   lobbyFootnote.textContent = isHost
-    ? "You are the host. The table can begin with any number of occupied chairs."
-    : "Waiting for the host to deal the first round.";
+    ? room.mode === "versus"
+      ? room.players.length < 2
+        ? "Versus needs another player or a house seat."
+        : `You are the host. First to ${VERSUS_WINS_TO_MATCH} round wins takes the match.`
+      : "You are the host. The crew can begin with any number of occupied chairs."
+    : `Waiting for the host to start ${room.mode === "versus" ? "the versus match" : "the first contract"}.`;
 }
 
 function renderIntermission(): void {
   if (!room) return;
   const self = currentPlayer();
   if (!self) return;
-  clearStamp.textContent = `Round ${room.round} cleared`;
+  clearStamp.textContent =
+    room.mode === "versus"
+      ? `${room.roundWinnerIds
+          .map((id) => room!.players.find((player) => player.id === id)?.name)
+          .filter(Boolean)
+          .join(" & ")} won round ${room.round}`
+      : `Round ${room.round} cleared`;
   const chosen = room.relicChoices.find((id) => room!.ownRelics.includes(id));
+  const needsReplacement = room.ownRelics.length >= MAX_ENGINE_SLOTS && !self.pickedRelic;
+  if (self.pickedRelic) replacementId = null;
+  engineBench.classList.toggle("is-hidden", room.ownRelics.length === 0);
+  engineBench.innerHTML = room.ownRelics.length
+    ? `
+      <div class="bench-heading">
+        <span>Your engine · ${room.ownRelics.length}/${MAX_ENGINE_SLOTS} parts</span>
+        <b>${needsReplacement ? "Select one part to retire" : "Stored state carries forward"}</b>
+      </div>
+      <div class="bench-parts">
+        ${room.ownRelics
+          .map((id, index) => {
+            const relic = relicById(id);
+            if (!relic) return "";
+            const state = engineReadout(id, room!.ownEngineState[id] ?? 0);
+            return `
+              <button
+                class="bench-part${replacementId === id ? " is-replacing" : ""}"
+                type="button"
+                ${needsReplacement ? `data-replace="${id}"` : "disabled"}
+                style="--relic-tone:${relicColor(relic)}"
+              >
+                <small>Slot 0${index + 1} · ${safe(relic.category)}</small>
+                <strong>${safe(relic.name)}</strong>
+                <span>${safe(state.label)}</span>
+              </button>
+            `;
+          })
+          .join("")}
+      </div>
+    `
+    : "";
   relicChoices.innerHTML = room.relicChoices
-    .map((id, index) => {
+    .map((id) => {
       const relic = relicById(id);
       if (!relic) return "";
       return `
@@ -565,9 +799,10 @@ function renderIntermission(): void {
         >
           <span class="relic-art" aria-hidden="true"></span>
           <span class="relic-copy">
-            <small>Part ${String(index + 1).padStart(2, "0")} · ${safe(relic.short)}</small>
+            <small>${safe(relic.category)} · ${safe(relic.short)}</small>
             <strong>${safe(relic.name)}</strong>
             <span>${safe(relic.description)}</span>
+            <em>${safe(relic.build)}</em>
           </span>
         </button>
       `;
@@ -576,36 +811,66 @@ function renderIntermission(): void {
 
   const readyPlayers = room.players.filter((player) => player.ready).length;
   if (!self.pickedRelic) {
-    readyStatus.textContent = "Pick a relic to continue.";
+    readyStatus.textContent = needsReplacement
+      ? replacementId
+        ? "Outgoing slot selected. Choose its replacement."
+        : "The engine is full. Select a part above to retire."
+      : "Choose one part to install.";
   } else if (self.ready) {
     readyStatus.textContent =
       readyPlayers === room.players.length
-        ? "The next contract is being dealt."
+        ? `The next ${room.mode === "versus" ? "showdown" : "contract"} is being dealt.`
         : `Ready. Waiting for ${room.players.length - readyPlayers} more.`;
   } else {
     readyStatus.textContent = `${room.players.filter((player) => player.pickedRelic).length}/${room.players.length} players have chosen.`;
   }
   readyButton.disabled = !self.pickedRelic;
-  readyButton.textContent = self.ready ? "Stand down" : "Ready for next deal";
+  readyButton.textContent = self.ready
+    ? "Stand down"
+    : `Ready for next ${room.mode === "versus" ? "round" : "deal"}`;
 }
 
 function renderGameOver(): void {
   if (!room) return;
   const self = currentPlayer();
   const total = room.players.reduce((sum, player) => sum + player.totalScore, 0);
-  gameoverCopy.textContent = `The table reached ${format(room.teamScore)} of ${format(room.target)} before the final hand. Your relics and room remain in the ledger.`;
-  roundsCleared.textContent = String(Math.max(0, room.round - 1));
+  if (room.mode === "versus") {
+    const winners = room.matchWinnerIds
+      .map((id) => room!.players.find((player) => player.id === id)?.name)
+      .filter(Boolean)
+      .join(" and ");
+    gameoverTitle.textContent = `${winners || "The leader"} owns the table.`;
+    gameoverCopy.textContent = `The match closed in round ${room.round}. Every seat built from the same hand budget; the winning engine reached ${VERSUS_WINS_TO_MATCH} round wins first.`;
+    gameoverEyebrow.textContent = "The table has a winner.";
+    failureSealTop.textContent = "Match";
+    failureSealBottom.textContent = "Won";
+    roundsLabel.textContent = "Rounds played";
+    scoreLabel.textContent = "Combined score";
+    restartButton.textContent = "Play another match";
+  } else {
+    gameoverTitle.textContent = "The machine ran dry.";
+    gameoverCopy.textContent = `The table reached ${format(room.teamScore)} of ${format(room.target)} before the final hand. Your engine and room remain in the ledger.`;
+    gameoverEyebrow.textContent = "The house held.";
+    failureSealTop.textContent = "Contract";
+    failureSealBottom.textContent = "Closed";
+    roundsLabel.textContent = "Rounds cleared";
+    scoreLabel.textContent = "Table score";
+    restartButton.textContent = "Run the table again";
+  }
+  roundsCleared.textContent = String(
+    room.mode === "versus" ? room.round : Math.max(0, room.round - 1)
+  );
   runScore.textContent = format(total);
   restartButton.classList.toggle("is-hidden", !self?.host);
   restartFootnote.textContent = self?.host
-    ? "A new run keeps every occupied chair."
-    : "Waiting for the host to reopen the contract.";
+    ? `A new ${room.mode === "versus" ? "match" : "run"} keeps every occupied chair.`
+    : `Waiting for the host to reopen the ${room.mode === "versus" ? "match" : "contract"}.`;
 }
 
 function updateSelectionPreview(): void {
   if (!room) return;
   const self = currentPlayer();
-  const cards = room.hand.filter((card) => selected.has(card.id));
+  const cards = orderedHand().filter((card) => selected.has(card.id));
   selectionLabel.textContent = cards.length
     ? `${cards.length} card${cards.length === 1 ? "" : "s"} selected`
     : "Choose up to five cards";
@@ -616,13 +881,15 @@ function updateSelectionPreview(): void {
   } else {
     const score = scoreHand(cards, {
       relicIds: room.ownRelics,
+      engineState: room.ownEngineState,
       previousHand: room.lastHand,
       chain: room.chain,
       boss: room.boss,
       handsLeftBeforePlay: self?.handsLeft ?? 0
     });
     previewHand.textContent = score.handLabel;
-    previewScore.textContent = `${format(score.finalChips)} chips × ${score.finalMultiplier.toFixed(score.finalMultiplier % 1 ? 2 : 0)} mult = ${format(score.total)}`;
+    const pulse = score.enginePulses.find((item) => item.kind === "fire") ?? score.enginePulses[0];
+    previewScore.textContent = `${format(score.finalChips)} chips × ${score.finalMultiplier.toFixed(score.finalMultiplier % 1 ? 2 : 0)} mult = ${format(score.total)}${pulse ? ` · ${pulse.label}: ${pulse.detail}` : ""}`;
   }
 
   const canAct = room.phase === "playing" && Boolean(self?.connected) && (self?.handsLeft ?? 0) > 0;
@@ -708,13 +975,16 @@ scene.setCallbacks(
   (cardId) => toggleCard(cardId),
   (cardId) => {
     if (cardId) audio.play("hover");
-  }
+  },
+  (cardId, toIndex, finished) => reorderHand(cardId, toIndex, finished)
 );
 
 createButton.addEventListener("click", beginCreate);
 joinButton.addEventListener("click", beginJoin);
 playButton.addEventListener("click", playSelected);
 discardButton.addEventListener("click", discardSelected);
+sortRank.addEventListener("click", () => applyHandSort("rank"));
+sortSuit.addEventListener("click", () => applyHandSort("suit"));
 howButton.addEventListener("click", openGuide);
 guideClose.addEventListener("click", closeGuide);
 guideLayer.addEventListener("pointerdown", (event) => {
@@ -753,6 +1023,13 @@ startButton.addEventListener("click", () => {
   send({ type: "start" });
 });
 
+modeSelector.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-mode]");
+  if (!button?.dataset.mode || button.disabled) return;
+  const mode = button.dataset.mode;
+  if (mode === "cooperative" || mode === "versus") send({ type: "set-mode", mode });
+});
+
 addBotButton.addEventListener("click", () => send({ type: "add-bot" }));
 seatList.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-remove-bot]");
@@ -762,7 +1039,23 @@ seatList.addEventListener("click", (event) => {
 relicChoices.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-relic]");
   if (!button?.dataset.relic || button.disabled) return;
-  send({ type: "pick-relic", relicId: button.dataset.relic });
+  if ((room?.ownRelics.length ?? 0) >= MAX_ENGINE_SLOTS && !replacementId) {
+    showToast("Select an installed part to retire first.", true);
+    return;
+  }
+  send({
+    type: "pick-relic",
+    relicId: button.dataset.relic,
+    replaceId: replacementId ?? undefined
+  });
+});
+
+engineBench.addEventListener("click", (event) => {
+  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-replace]");
+  if (!button?.dataset.replace || button.disabled) return;
+  replacementId = button.dataset.replace;
+  audio.play("select");
+  renderIntermission();
 });
 
 readyButton.addEventListener("click", () => send({ type: "ready" }));
@@ -785,9 +1078,11 @@ document.addEventListener("keydown", (event) => {
   }
   if (!room || room.phase !== "playing") return;
   if (/^[1-8]$/.test(event.key)) {
-    const card = room.hand[Number(event.key) - 1];
+    const card = orderedHand()[Number(event.key) - 1];
     if (card) toggleCard(card.id);
   }
+  if (event.key.toLowerCase() === "r") applyHandSort("rank");
+  if (event.key.toLowerCase() === "s") applyHandSort("suit");
   if (event.key.toLowerCase() === "d") discardSelected();
   if (event.key === "Enter") playSelected();
 });

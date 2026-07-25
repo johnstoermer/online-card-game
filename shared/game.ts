@@ -1,6 +1,7 @@
 import type {
   BossDefinition,
   Card,
+  EnginePulse,
   HandKey,
   RelicDefinition,
   ScoreBreakdown,
@@ -28,88 +29,115 @@ export const RELICS: RelicDefinition[] = [
   {
     id: "brass-knuckle",
     name: "Brass Knuckle",
-    description: "Pairs and stronger hands gain +2 multiplier.",
-    short: "PAIR +2 MULT",
-    tone: "copper"
+    description: "Pair-or-better hands gain +2 mult, then permanently calibrate this part by +0.5 mult.",
+    short: "PAIR SCALER",
+    tone: "copper",
+    category: "pattern",
+    build: "Pairs grow multiplier"
   },
   {
     id: "red-lens",
     name: "Red Lens",
-    description: "Every heart in a played hand adds 8 chips.",
-    short: "HEART +8",
-    tone: "red"
+    description: "Hearts add 8 chips each. Every 10 hearts logged raises their value by 2 chips.",
+    short: "HEART FEEDER",
+    tone: "red",
+    category: "feeder",
+    build: "Hearts become chips"
   },
   {
     id: "stone-index",
     name: "Stone Index",
-    description: "Hands made with exactly four cards gain +3 multiplier.",
-    short: "FOUR +3 MULT",
-    tone: "ivory"
+    description: "Exactly four cards gain +3 mult. Every trigger permanently adds another +1 mult.",
+    short: "FOUR SCALER",
+    tone: "ivory",
+    category: "pattern",
+    build: "Four-card hands scale"
   },
   {
     id: "echo-coil",
     name: "Echo Coil",
-    description: "Changing the team's last hand type adds +2 multiplier.",
-    short: "ECHO +2 MULT",
-    tone: "blue"
+    description: "Changing the table's last hand charges the coil. Three charges fire a ×2 payoff.",
+    short: "CHAIN PAYOFF",
+    tone: "blue",
+    category: "payoff",
+    build: "Variety fires ×2"
   },
   {
     id: "crown-wire",
     name: "Crown Wire",
-    description: "Kings, queens, and jacks add 7 chips each.",
-    short: "FACE +7",
-    tone: "copper"
+    description: "Face cards add 7 chips each. Every 6 faces logged raises their value by 2 chips.",
+    short: "FACE FEEDER",
+    tone: "copper",
+    category: "feeder",
+    build: "Faces become chips"
   },
   {
     id: "black-key",
     name: "Black Key",
-    description: "Every two spades in a played hand add +1 multiplier.",
-    short: "2 SPADES +1",
-    tone: "black"
+    description: "Every 5 spades logged permanently adds +1 mult to every future hand.",
+    short: "SPADE BANK",
+    tone: "black",
+    category: "rhythm",
+    build: "Spades bank multiplier"
   },
   {
     id: "green-felt",
     name: "Green Felt",
-    description: "Flushes and straight flushes gain 45 chips.",
-    short: "FLUSH +45",
-    tone: "green"
+    description: "Flushes gain 45 chips, then this part permanently grows by 15 chips.",
+    short: "FLUSH SCALER",
+    tone: "green",
+    category: "pattern",
+    build: "Flushes grow chips"
   },
   {
     id: "ace-bearing",
     name: "Ace Bearing",
-    description: "Each ace adds 18 chips and the first adds +1 multiplier.",
-    short: "ACE POWER",
-    tone: "ivory"
+    description: "Aces charge the bearing across hands. Every third ace fires a ×2.25 payoff.",
+    short: "ACE PAYOFF",
+    tone: "ivory",
+    category: "payoff",
+    build: "Three aces fire ×2.25"
   },
   {
     id: "short-circuit",
     name: "Short Circuit",
-    description: "Hands using three or fewer cards gain +4 multiplier.",
-    short: "SHORT +4 MULT",
-    tone: "red"
+    description: "Three-card-or-smaller hands gain +4 mult and build a growing short-hand streak.",
+    short: "SHORT RHYTHM",
+    tone: "red",
+    category: "rhythm",
+    build: "Small hands chain mult"
   },
   {
     id: "double-clutch",
     name: "Double Clutch",
-    description: "Two Pair and Full House hands gain 60 chips.",
-    short: "PAIRWORK +60",
-    tone: "blue"
+    description: "Two Pair and Full House gain 60 chips. Every trigger permanently adds 20 chips.",
+    short: "PAIRWORK",
+    tone: "blue",
+    category: "pattern",
+    build: "Pair patterns scale"
   },
   {
     id: "odd-gear",
     name: "Odd Gear",
-    description: "Odd-ranked cards add 6 chips each.",
-    short: "ODD +6",
-    tone: "green"
+    description: "Odd ranks add 6 chips each. Every 8 odd cards logged raises their value by 2 chips.",
+    short: "ODD FEEDER",
+    tone: "green",
+    category: "feeder",
+    build: "Odd ranks become chips"
   },
   {
     id: "last-call",
     name: "Last Call",
-    description: "Your final hand each round gains +5 multiplier.",
-    short: "LAST +5 MULT",
-    tone: "black"
+    description: "Your final hand each round multiplies the finished engine by ×1.75.",
+    short: "FINAL PAYOFF",
+    tone: "black",
+    category: "payoff",
+    build: "Last hand fires ×1.75"
   }
 ];
+
+export const MAX_ENGINE_SLOTS = 5;
+export const VERSUS_WINS_TO_MATCH = 3;
 
 export const BOSSES: BossDefinition[] = [
   {
@@ -183,6 +211,7 @@ function baseCardChips(card: Card): number {
 
 export interface ScoreContext {
   relicIds: string[];
+  engineState?: Record<string, number>;
   previousHand: HandKey | null;
   chain: number;
   boss: BossDefinition | null;
@@ -193,65 +222,163 @@ export function scoreHand(cards: Card[], context: ScoreContext): ScoreBreakdown 
   const hand = evaluateHand(cards);
   const definition = HANDS[hand];
   const notes: string[] = [];
+  const enginePulses: EnginePulse[] = [];
+  const engineStateAfter = { ...(context.engineState ?? {}) };
   let cardChips = cards.reduce((sum, card) => sum + baseCardChips(card), 0);
   let bonusChips = 0;
   let bonusMultiplier = 0;
   let bossMultiplier = 1;
+  let engineMultiplier = 1;
   const has = (id: string) => context.relicIds.includes(id);
+  const state = (id: string) => engineStateAfter[id] ?? 0;
+  const setState = (id: string, value: number) => {
+    engineStateAfter[id] = value;
+  };
+  const pulse = (
+    relicId: string,
+    label: string,
+    detail: string,
+    kind: EnginePulse["kind"]
+  ) => enginePulses.push({ relicId, label, detail, kind });
 
   if (has("brass-knuckle") && HANDS[hand].order >= HANDS.pair.order) {
-    bonusMultiplier += 2;
-    notes.push("Brass Knuckle +2 mult");
+    const calibration = state("brass-knuckle");
+    const bonus = 2 + calibration * 0.5;
+    bonusMultiplier += bonus;
+    setState("brass-knuckle", calibration + 1);
+    notes.push(`Brass Knuckle +${bonus.toFixed(bonus % 1 ? 1 : 0)} mult`);
+    pulse("brass-knuckle", "Brass Knuckle", `Calibrated to +${(2 + (calibration + 1) * 0.5).toFixed(1)} mult`, "grow");
   }
   if (has("red-lens")) {
-    const bonus = cards.filter((card) => card.suit === "hearts").length * 8;
+    const hearts = cards.filter((card) => card.suit === "hearts").length;
+    const logged = state("red-lens");
+    const value = 8 + Math.floor(logged / 10) * 2;
+    const bonus = hearts * value;
     bonusChips += bonus;
-    if (bonus) notes.push(`Red Lens +${bonus} chips`);
+    if (hearts) {
+      const next = logged + hearts;
+      setState("red-lens", next);
+      notes.push(`Red Lens +${bonus} chips`);
+      const grew = Math.floor(next / 10) > Math.floor(logged / 10);
+      pulse("red-lens", "Red Lens", grew ? `Calibrated: hearts now +${value + 2}` : `${next % 10}/10 hearts logged`, grew ? "grow" : "charge");
+    }
   }
   if (has("stone-index") && cards.length === 4) {
-    bonusMultiplier += 3;
-    notes.push("Stone Index +3 mult");
+    const triggers = state("stone-index");
+    const bonus = 3 + triggers;
+    bonusMultiplier += bonus;
+    setState("stone-index", triggers + 1);
+    notes.push(`Stone Index +${bonus} mult`);
+    pulse("stone-index", "Stone Index", `Grew to +${bonus + 1} mult`, "grow");
   }
   if (has("echo-coil") && context.previousHand && context.previousHand !== hand) {
-    bonusMultiplier += 2;
-    notes.push("Echo Coil +2 mult");
+    let charge = state("echo-coil") + 1;
+    if (charge >= 3) {
+      engineMultiplier *= 2;
+      charge -= 3;
+      notes.push("Echo Coil ×2");
+      pulse("echo-coil", "Echo Coil", "Discharged ×2", "fire");
+    } else {
+      pulse("echo-coil", "Echo Coil", `${charge}/3 charge`, "charge");
+    }
+    setState("echo-coil", charge);
   }
   if (has("crown-wire")) {
-    const bonus = cards.filter((card) => card.rank >= 11 && card.rank <= 13).length * 7;
+    const faces = cards.filter((card) => card.rank >= 11 && card.rank <= 13).length;
+    const logged = state("crown-wire");
+    const value = 7 + Math.floor(logged / 6) * 2;
+    const bonus = faces * value;
     bonusChips += bonus;
-    if (bonus) notes.push(`Crown Wire +${bonus} chips`);
+    if (faces) {
+      const next = logged + faces;
+      setState("crown-wire", next);
+      notes.push(`Crown Wire +${bonus} chips`);
+      const grew = Math.floor(next / 6) > Math.floor(logged / 6);
+      pulse("crown-wire", "Crown Wire", grew ? `Calibrated: faces now +${value + 2}` : `${next % 6}/6 faces logged`, grew ? "grow" : "charge");
+    }
   }
   if (has("black-key")) {
-    const bonus = Math.floor(cards.filter((card) => card.suit === "spades").length / 2);
-    bonusMultiplier += bonus;
-    if (bonus) notes.push(`Black Key +${bonus} mult`);
+    const spades = cards.filter((card) => card.suit === "spades").length;
+    const logged = state("black-key");
+    const next = logged + spades;
+    const tier = Math.floor(next / 5);
+    bonusMultiplier += tier;
+    setState("black-key", next);
+    if (tier) notes.push(`Black Key +${tier} mult`);
+    if (spades) {
+      const grew = Math.floor(next / 5) > Math.floor(logged / 5);
+      pulse("black-key", "Black Key", grew ? `Bank raised to +${tier} mult` : `${next % 5}/5 spades to next mult`, grew ? "grow" : "charge");
+    }
   }
   if (has("green-felt") && (hand === "flush" || hand === "straight-flush" || hand === "royal-flush")) {
-    bonusChips += 45;
-    notes.push("Green Felt +45 chips");
+    const triggers = state("green-felt");
+    const bonus = 45 + triggers * 15;
+    bonusChips += bonus;
+    setState("green-felt", triggers + 1);
+    notes.push(`Green Felt +${bonus} chips`);
+    pulse("green-felt", "Green Felt", `Grew to +${bonus + 15} chips`, "grow");
   }
   if (has("ace-bearing")) {
     const aces = cards.filter((card) => card.rank === 14).length;
-    bonusChips += aces * 18;
-    bonusMultiplier += aces ? 1 : 0;
-    if (aces) notes.push(`Ace Bearing +${aces * 18} chips, +1 mult`);
+    if (aces) {
+      let charge = state("ace-bearing") + aces;
+      const fires = Math.floor(charge / 3);
+      if (fires) {
+        const payoff = Math.pow(2.25, fires);
+        engineMultiplier *= payoff;
+        charge %= 3;
+        notes.push(`Ace Bearing ×${payoff.toFixed(2)}`);
+        pulse(
+          "ace-bearing",
+          "Ace Bearing",
+          fires > 1 ? `Bearing fired ${fires} times · ×${payoff.toFixed(2)}` : "Bearing fired ×2.25",
+          "fire"
+        );
+      } else {
+        pulse("ace-bearing", "Ace Bearing", `${charge}/3 aces charged`, "charge");
+      }
+      setState("ace-bearing", charge);
+    }
   }
-  if (has("short-circuit") && cards.length <= 3) {
-    bonusMultiplier += 4;
-    notes.push("Short Circuit +4 mult");
+  if (has("short-circuit")) {
+    if (cards.length <= 3) {
+      const streak = state("short-circuit") + 1;
+      const bonus = 3 + streak;
+      bonusMultiplier += bonus;
+      setState("short-circuit", streak);
+      notes.push(`Short Circuit +${bonus} mult`);
+      pulse("short-circuit", "Short Circuit", `${streak} hand streak; next +${bonus + 1} mult`, "grow");
+    } else if (state("short-circuit")) {
+      setState("short-circuit", 0);
+      pulse("short-circuit", "Short Circuit", "Streak reset", "charge");
+    }
   }
   if (has("double-clutch") && (hand === "two-pair" || hand === "full-house")) {
-    bonusChips += 60;
-    notes.push("Double Clutch +60 chips");
+    const triggers = state("double-clutch");
+    const bonus = 60 + triggers * 20;
+    bonusChips += bonus;
+    setState("double-clutch", triggers + 1);
+    notes.push(`Double Clutch +${bonus} chips`);
+    pulse("double-clutch", "Double Clutch", `Grew to +${bonus + 20} chips`, "grow");
   }
   if (has("odd-gear")) {
-    const bonus = cards.filter((card) => card.rank % 2 === 1).length * 6;
+    const odds = cards.filter((card) => card.rank % 2 === 1).length;
+    const logged = state("odd-gear");
+    const value = 6 + Math.floor(logged / 8) * 2;
+    const bonus = odds * value;
     bonusChips += bonus;
-    if (bonus) notes.push(`Odd Gear +${bonus} chips`);
+    if (odds) {
+      const next = logged + odds;
+      setState("odd-gear", next);
+      notes.push(`Odd Gear +${bonus} chips`);
+      const grew = Math.floor(next / 8) > Math.floor(logged / 8);
+      pulse("odd-gear", "Odd Gear", grew ? `Calibrated: odd ranks now +${value + 2}` : `${next % 8}/8 odd cards logged`, grew ? "grow" : "charge");
+    }
   }
   if (has("last-call") && context.handsLeftBeforePlay === 1) {
-    bonusMultiplier += 5;
-    notes.push("Last Call +5 mult");
+    engineMultiplier *= 1.75;
+    notes.push("Last Call ×1.75");
+    pulse("last-call", "Last Call", "Final hand fired ×1.75", "fire");
   }
 
   if (context.boss?.id === "counterfeit") {
@@ -282,7 +409,7 @@ export function scoreHand(cards: Card[], context: ScoreContext): ScoreBreakdown 
 
   const finalChips = Math.max(0, definition.chips + cardChips + bonusChips);
   const rawMultiplier = Math.max(1, definition.multiplier + bonusMultiplier);
-  const finalMultiplier = rawMultiplier * chainMultiplier * bossMultiplier;
+  const finalMultiplier = rawMultiplier * chainMultiplier * bossMultiplier * engineMultiplier;
   const total = Math.max(1, Math.round(finalChips * finalMultiplier));
 
   return {
@@ -295,11 +422,14 @@ export function scoreHand(cards: Card[], context: ScoreContext): ScoreBreakdown 
     bonusMultiplier,
     chainMultiplier,
     bossMultiplier,
+    engineMultiplier,
     finalChips,
     finalMultiplier,
     total,
     chain,
-    notes
+    notes,
+    engineStateAfter,
+    enginePulses
   };
 }
 

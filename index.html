@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
-      content="Online Card Game is a cooperative poker-combo roguelite played around a tactile voxel table."
+      content="Online Card Game is a multiplayer poker-engine roguelite played around a tactile voxel table."
     />
     <meta name="theme-color" content="#071612" />
     <meta property="og:title" content="Online Card Game" />
     <meta
       property="og:description"
-      content="Build impossible poker engines with friends around a tactile voxel table."
+      content="Build impossible poker engines with or against friends around a tactile voxel table."
     />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <title>Online Card Game</title>
@@ -37,7 +37,7 @@
       <main>
         <section class="home-screen" id="home-screen" aria-labelledby="game-title">
           <div class="hero-copy">
-            <p class="eyebrow">A cooperative poker machine</p>
+            <p class="eyebrow">A multiplayer poker machine</p>
             <h1 id="game-title">
               <span>Online</span>
               <span>Card Game</span>
@@ -98,19 +98,19 @@
 
         <section class="game-screen is-hidden" id="game-screen" aria-label="Game table">
           <div class="round-plate">
-            <span class="round-kicker">Contract</span>
+            <span class="round-kicker" id="round-kicker">Contract</span>
             <strong id="round-label">Round 1</strong>
             <span id="round-type">Open table</span>
           </div>
 
-          <aside class="score-instrument" aria-label="Shared contract score">
+          <aside class="score-instrument" id="score-instrument" aria-label="Shared contract score">
             <div class="instrument-topline">
-              <span>Shared score</span>
+              <span id="instrument-title">Shared score</span>
               <span id="score-percent">0%</span>
             </div>
             <div class="score-numbers">
               <strong id="team-score">0</strong>
-              <span>/ <b id="target-score">260</b></span>
+              <span id="target-wrap">/ <b id="target-score">260</b></span>
             </div>
             <div class="score-track" aria-hidden="true">
               <div class="score-fill" id="score-fill"></div>
@@ -143,9 +143,19 @@
               <i></i>
               <strong id="message-total"></strong>
             </div>
+            <div class="message-engine" id="message-engine"></div>
           </div>
 
           <div class="action-dock" id="action-dock">
+            <div class="hand-sorter" aria-label="Hand sorting controls">
+              <span id="sort-label">Sort hand</span>
+              <button class="sort-button is-active" id="sort-rank" type="button" aria-pressed="true">
+                Rank <kbd>R</kbd>
+              </button>
+              <button class="sort-button" id="sort-suit" type="button" aria-pressed="false">
+                Suit <kbd>S</kbd>
+              </button>
+            </div>
             <div class="hand-reading">
               <span id="selection-label">Choose up to five cards</span>
               <strong id="preview-hand">No hand selected</strong>
@@ -163,12 +173,13 @@
             </div>
             <div class="keyboard-guide">
               <span><kbd>1–8</kbd> select</span>
+              <span><kbd>R / S</kbd> sort</span>
               <span><kbd>D</kbd> discard</span>
               <span><kbd>Enter</kbd> play</span>
             </div>
           </div>
 
-          <div class="relic-rack" id="relic-rack" aria-label="Your relics"></div>
+          <div class="relic-rack" id="relic-rack" aria-label="Your five-part engine"></div>
         </section>
       </main>
 
@@ -180,6 +191,18 @@
           </div>
           <h2>The table is open.</h2>
           <p class="modal-intro">Send the key to your friends, or fill empty chairs with house players.</p>
+          <div class="mode-selector" id="mode-selector">
+            <button class="mode-option is-active" id="mode-cooperative" type="button" data-mode="cooperative">
+              <small>Contract crew</small>
+              <strong>Cooperative</strong>
+              <span>Share one rising score target and build the echo together.</span>
+            </button>
+            <button class="mode-option" id="mode-versus" type="button" data-mode="versus">
+              <small>First to three wins</small>
+              <strong>Table Versus</strong>
+              <span>Equal hand budgets. Highest round score takes the win.</span>
+            </button>
+          </div>
           <div class="invite-slip">
             <span>Table key</span>
             <strong id="lobby-code">----</strong>
@@ -204,11 +227,12 @@
             <span>Workshop interval</span>
             <b id="clear-stamp">Contract cleared</b>
           </div>
-          <h2 id="relic-title">Choose one part.</h2>
-          <p class="modal-intro">It stays in your machine for the rest of this run.</p>
+          <h2 id="relic-title">Install one part.</h2>
+          <p class="modal-intro">Build a five-part engine. Every trigger, charge, and calibration persists across rounds.</p>
+          <div class="engine-bench is-hidden" id="engine-bench"></div>
           <div class="relic-choices" id="relic-choices"></div>
           <div class="ready-line">
-            <div id="ready-status">Pick a relic to continue.</div>
+            <div id="ready-status">Pick a part to continue.</div>
             <button class="primary-button" id="ready-button" type="button" disabled>Ready for next deal</button>
           </div>
         </section>
@@ -220,13 +244,15 @@
           aria-modal="true"
           aria-labelledby="gameover-title"
         >
-          <div class="failure-seal" aria-hidden="true"><span>Contract</span><strong>Closed</strong></div>
-          <p class="eyebrow">The house held.</p>
+          <div class="failure-seal" aria-hidden="true">
+            <span id="failure-seal-top">Contract</span><strong id="failure-seal-bottom">Closed</strong>
+          </div>
+          <p class="eyebrow" id="gameover-eyebrow">The house held.</p>
           <h2 id="gameover-title">The machine ran dry.</h2>
           <p id="gameover-copy" class="modal-intro"></p>
           <div class="run-totals">
-            <div><span>Rounds cleared</span><strong id="rounds-cleared">0</strong></div>
-            <div><span>Table score</span><strong id="run-score">0</strong></div>
+            <div><span id="rounds-label">Rounds cleared</span><strong id="rounds-cleared">0</strong></div>
+            <div><span id="score-label">Table score</span><strong id="run-score">0</strong></div>
           </div>
           <button class="primary-button" id="restart-button" type="button">Run the table again</button>
           <p class="modal-footnote" id="restart-footnote"></p>
@@ -242,12 +268,12 @@
             <article>
               <span class="guide-index">01</span>
               <h3>Choose your hand</h3>
-              <p>Select one to five cards. Familiar poker patterns begin with pairs and climb through flushes and straights.</p>
+              <p>Select one to five cards. Sort by rank or suit, or drag cards into a custom order. Familiar poker patterns begin with pairs and climb through flushes and straights.</p>
             </article>
             <article>
               <span class="guide-index">02</span>
               <h3>Score the contract</h3>
-              <p>Card chips and hand chips are multiplied by the hand's multiplier. Reach the shared target before every player spends three hands.</p>
+              <p>In Cooperative, reach the shared target. In Table Versus, every seat spends three hands and the highest score takes a win; first to three wins the match.</p>
             </article>
             <article>
               <span class="guide-index">03</span>
@@ -257,7 +283,7 @@
             <article>
               <span class="guide-index">04</span>
               <h3>Rebuild between rounds</h3>
-              <p>Each cleared contract gives every player a permanent relic. Every third round adds a hostile house rule.</p>
+              <p>Install up to five stateful parts. Feeders collect cards, scalers grow, and payoff parts fire multipliers. Replace a part when the rack is full.</p>
             </article>
           </div>
           <div class="hand-order">

@@ -5,14 +5,17 @@ import { WebSocket, WebSocketServer } from "ws";
 import {
   bossForRound,
   createDeck,
+  MAX_ENGINE_SLOTS,
   RELICS,
   roundTarget,
   scoreHand,
-  shuffled
+  shuffled,
+  VERSUS_WINS_TO_MATCH
 } from "../shared/game.js";
 import type {
   Card,
   ClientMessage,
+  GameMode,
   GameEvent,
   HandKey,
   PublicPlayer,
@@ -41,7 +44,9 @@ interface Player {
   discardsLeft: number;
   roundScore: number;
   totalScore: number;
+  roundWins: number;
   relics: string[];
+  engineState: Record<string, number>;
   relicChoices: string[];
   pickedRelic: boolean;
   ready: boolean;
@@ -52,11 +57,14 @@ interface Player {
 interface Room {
   code: string;
   phase: RoomPhase;
+  mode: GameMode;
   round: number;
   target: number;
   teamScore: number;
   chain: number;
   lastHand: HandKey | null;
+  roundWinnerIds: string[];
+  matchWinnerIds: string[];
   players: Player[];
   eventNumber: number;
   createdAt: number;
@@ -172,11 +180,14 @@ function createRoom(): Room {
   const room: Room = {
     code,
     phase: "lobby",
+    mode: "cooperative",
     round: 1,
     target: 0,
     teamScore: 0,
     chain: 0,
     lastHand: null,
+    roundWinnerIds: [],
+    matchWinnerIds: [],
     players: [],
     eventNumber: 0,
     createdAt: Date.now(),
@@ -201,7 +212,9 @@ function createPlayer(name: string, sessionId?: string, isBot = false): Player {
     discardsLeft: 0,
     roundScore: 0,
     totalScore: 0,
+    roundWins: 0,
     relics: [],
+    engineState: {},
     relicChoices: [],
     pickedRelic: false,
     ready: false
@@ -231,6 +244,7 @@ function publicPlayer(player: Player): PublicPlayer {
     discardsLeft: player.discardsLeft,
     roundScore: player.roundScore,
     totalScore: player.totalScore,
+    roundWins: player.roundWins,
     relics: [...player.relics],
     pickedRelic: player.pickedRelic,
     ready: player.ready
@@ -241,6 +255,7 @@ function roomView(room: Room, viewer: Player): RoomView {
   return {
     code: room.code,
     phase: room.phase,
+    mode: room.mode,
     round: room.round,
     target: room.target,
     teamScore: room.teamScore,
@@ -252,6 +267,9 @@ function roomView(room: Room, viewer: Player): RoomView {
     deckRemaining: viewer.deck.length,
     relicChoices: [...viewer.relicChoices],
     ownRelics: [...viewer.relics],
+    ownEngineState: { ...viewer.engineState },
+    roundWinnerIds: [...room.roundWinnerIds],
+    matchWinnerIds: [...room.matchWinnerIds],
     eventNumber: room.eventNumber,
     createdAt: room.createdAt
   };
@@ -293,7 +311,8 @@ function beginRound(room: Room): void {
   room.teamScore = 0;
   room.chain = 0;
   room.lastHand = null;
-  room.target = roundTarget(room.round, room.players.length);
+  room.roundWinnerIds = [];
+  room.target = room.mode === "cooperative" ? roundTarget(room.round, room.players.length) : 0;
 
   for (const player of room.players) {
     player.deck = shuffled(createDeck(`${room.round}-${player.id}-`));
@@ -326,10 +345,14 @@ function resetRun(room: Room): void {
   room.teamScore = 0;
   room.chain = 0;
   room.lastHand = null;
+  room.roundWinnerIds = [];
+  room.matchWinnerIds = [];
   for (const player of room.players) {
     player.totalScore = 0;
     player.roundScore = 0;
+    player.roundWins = 0;
     player.relics = [];
+    player.engineState = {};
     player.relicChoices = [];
     player.pickedRelic = false;
     player.ready = false;
@@ -351,7 +374,13 @@ function enterIntermission(room: Room): void {
     player.pickedRelic = player.relicChoices.length === 0;
     player.ready = false;
     if (player.isBot && player.relicChoices.length) {
-      player.relics.push(player.relicChoices[0]);
+      const relicId = player.relicChoices[0];
+      if (player.relics.length >= MAX_ENGINE_SLOTS) {
+        const removed = player.relics.shift();
+        if (removed) delete player.engineState[removed];
+      }
+      player.relics.push(relicId);
+      player.engineState[relicId] = 0;
       player.pickedRelic = true;
     }
     if (player.isBot) player.ready = true;
@@ -359,15 +388,21 @@ function enterIntermission(room: Room): void {
   broadcastState(room);
 }
 
-function finishRound(room: Room, won: boolean): void {
+function clearRoundTimers(room: Room): void {
   for (const timer of room.botTimers.values()) clearTimeout(timer);
   room.botTimers.clear();
+}
+
+function finishCooperativeRound(room: Room, won: boolean): void {
+  clearRoundTimers(room);
   if (won) {
     emit(room, {
       kind: "round-won",
       round: room.round,
       score: room.teamScore,
-      target: room.target
+      target: room.target,
+      mode: room.mode,
+      winnerIds: []
     });
     enterIntermission(room);
     return;
@@ -383,14 +418,52 @@ function finishRound(room: Room, won: boolean): void {
   broadcastState(room);
 }
 
-function checkRoundEnd(room: Room): void {
-  if (room.phase !== "playing") return;
-  if (room.teamScore >= room.target) {
-    finishRound(room, true);
+function finishVersusRound(room: Room): void {
+  clearRoundTimers(room);
+  const bestScore = Math.max(...room.players.map((player) => player.roundScore));
+  const winners = room.players.filter((player) => player.roundScore === bestScore);
+  room.roundWinnerIds = winners.map((player) => player.id);
+  for (const winner of winners) winner.roundWins += 1;
+
+  emit(room, {
+    kind: "round-won",
+    round: room.round,
+    score: bestScore,
+    target: 0,
+    mode: room.mode,
+    winnerIds: room.roundWinnerIds
+  });
+
+  const matchWinners = room.players.filter(
+    (player) => player.roundWins >= VERSUS_WINS_TO_MATCH
+  );
+  if (matchWinners.length) {
+    room.matchWinnerIds = matchWinners.map((player) => player.id);
+    room.phase = "gameover";
+    emit(room, {
+      kind: "match-won",
+      winnerIds: room.matchWinnerIds,
+      winnerNames: matchWinners.map((player) => player.name),
+      round: room.round
+    });
+    broadcastState(room);
     return;
   }
-  if (room.players.every((player) => player.handsLeft <= 0)) {
-    finishRound(room, false);
+  enterIntermission(room);
+}
+
+function checkRoundEnd(room: Room): void {
+  if (room.phase !== "playing") return;
+  if (room.mode === "cooperative") {
+    if (room.teamScore >= room.target) {
+      finishCooperativeRound(room, true);
+      return;
+    }
+    if (room.players.every((player) => player.handsLeft <= 0)) {
+      finishCooperativeRound(room, false);
+    }
+  } else if (room.players.every((player) => player.handsLeft <= 0)) {
+    finishVersusRound(room);
   }
 }
 
@@ -418,6 +491,7 @@ function playCards(room: Room, player: Player, cardIds: string[]): void {
 
   const breakdown = scoreHand(selected, {
     relicIds: player.relics,
+    engineState: player.engineState,
     previousHand: room.lastHand,
     chain: room.chain,
     boss: bossForRound(room.round),
@@ -425,9 +499,13 @@ function playCards(room: Room, player: Player, cardIds: string[]): void {
   });
 
   player.handsLeft -= 1;
+  player.engineState = breakdown.engineStateAfter;
   player.roundScore += breakdown.total;
   player.totalScore += breakdown.total;
-  room.teamScore += breakdown.total;
+  room.teamScore =
+    room.mode === "cooperative"
+      ? room.teamScore + breakdown.total
+      : Math.max(...room.players.map((seat) => seat.roundScore));
   room.chain = breakdown.chain;
   room.lastHand = breakdown.hand;
   removeAndRefill(player, selected);
@@ -489,6 +567,7 @@ function bestBotCards(room: Room, player: Player): Card[] {
   for (const candidate of candidates) {
     const score = scoreHand(candidate, {
       relicIds: player.relics,
+      engineState: player.engineState,
       previousHand: room.lastHand,
       chain: room.chain,
       boss: bossForRound(room.round),
@@ -622,7 +701,18 @@ function handleAction(ws: WebSocket, message: ClientMessage): void {
   if (message.type === "start") {
     if (!player.host) return sendError(ws, "Only the table host can start.");
     if (room.phase !== "lobby") return;
+    if (room.mode === "versus" && room.players.length < 2) {
+      return sendError(ws, "Versus needs at least two occupied seats.");
+    }
     resetRun(room);
+    return;
+  }
+
+  if (message.type === "set-mode") {
+    if (!player.host || room.phase !== "lobby") return;
+    if (message.mode !== "cooperative" && message.mode !== "versus") return;
+    room.mode = message.mode;
+    broadcastState(room);
     return;
   }
 
@@ -641,13 +731,26 @@ function handleAction(ws: WebSocket, message: ClientMessage): void {
     if (!player.relicChoices.includes(message.relicId)) {
       return sendError(ws, "That relic is not available.");
     }
-    player.relics.push(message.relicId);
+    let replacedRelicId: string | undefined;
+    if (player.relics.length >= MAX_ENGINE_SLOTS) {
+      if (!message.replaceId || !player.relics.includes(message.replaceId)) {
+        return sendError(ws, "Choose an installed part to replace.");
+      }
+      const slot = player.relics.indexOf(message.replaceId);
+      replacedRelicId = message.replaceId;
+      player.relics.splice(slot, 1, message.relicId);
+      delete player.engineState[message.replaceId];
+    } else {
+      player.relics.push(message.relicId);
+    }
+    player.engineState[message.relicId] = 0;
     player.pickedRelic = true;
     emit(room, {
       kind: "relic-picked",
       playerId: player.id,
       playerName: player.name,
-      relicId: message.relicId
+      relicId: message.relicId,
+      replacedRelicId
     });
     broadcastState(room);
     return;
@@ -737,7 +840,13 @@ wss.on("connection", (ws) => {
     rebalanceSeats(room);
     if (room.phase === "intermission") {
       if (!player.pickedRelic && player.relicChoices.length) {
-        player.relics.push(player.relicChoices[0]);
+        const relicId = player.relicChoices[0];
+        if (player.relics.length >= MAX_ENGINE_SLOTS) {
+          const removed = player.relics.shift();
+          if (removed) delete player.engineState[removed];
+        }
+        player.relics.push(relicId);
+        player.engineState[relicId] = 0;
         player.pickedRelic = true;
       }
       player.ready = true;

@@ -20,6 +20,7 @@ export type HandKey =
   | "royal-flush";
 
 export type RoomPhase = "lobby" | "playing" | "intermission" | "gameover";
+export type GameMode = "cooperative" | "versus";
 
 export interface RelicDefinition {
   id: string;
@@ -27,6 +28,8 @@ export interface RelicDefinition {
   description: string;
   short: string;
   tone: "copper" | "red" | "ivory" | "black" | "green" | "blue";
+  category: "feeder" | "pattern" | "rhythm" | "payoff";
+  build: string;
 }
 
 export interface BossDefinition {
@@ -47,6 +50,7 @@ export interface PublicPlayer {
   discardsLeft: number;
   roundScore: number;
   totalScore: number;
+  roundWins: number;
   relics: string[];
   pickedRelic: boolean;
   ready: boolean;
@@ -55,6 +59,7 @@ export interface PublicPlayer {
 export interface RoomView {
   code: string;
   phase: RoomPhase;
+  mode: GameMode;
   round: number;
   target: number;
   teamScore: number;
@@ -66,6 +71,9 @@ export interface RoomView {
   deckRemaining: number;
   relicChoices: string[];
   ownRelics: string[];
+  ownEngineState: Record<string, number>;
+  roundWinnerIds: string[];
+  matchWinnerIds: string[];
   eventNumber: number;
   createdAt: number;
 }
@@ -80,11 +88,21 @@ export interface ScoreBreakdown {
   bonusMultiplier: number;
   chainMultiplier: number;
   bossMultiplier: number;
+  engineMultiplier: number;
   finalChips: number;
   finalMultiplier: number;
   total: number;
   chain: number;
   notes: string[];
+  engineStateAfter: Record<string, number>;
+  enginePulses: EnginePulse[];
+}
+
+export interface EnginePulse {
+  relicId: string;
+  label: string;
+  detail: string;
+  kind: "charge" | "grow" | "fire";
 }
 
 export type GameEvent =
@@ -109,6 +127,8 @@ export type GameEvent =
       round: number;
       score: number;
       target: number;
+      mode: GameMode;
+      winnerIds: string[];
     }
   | {
       kind: "round-lost";
@@ -125,6 +145,13 @@ export type GameEvent =
       boss: BossDefinition | null;
     }
   | {
+      kind: "match-won";
+      eventNumber: number;
+      winnerIds: string[];
+      winnerNames: string[];
+      round: number;
+    }
+  | {
       kind: "player-joined" | "player-left";
       eventNumber: number;
       playerId: string;
@@ -136,15 +163,17 @@ export type GameEvent =
       playerId: string;
       playerName: string;
       relicId: string;
+      replacedRelicId?: string;
     };
 
 export type ClientMessage =
   | { type: "create"; name: string; sessionId?: string }
   | { type: "join"; code: string; name: string; sessionId?: string }
   | { type: "start" }
+  | { type: "set-mode"; mode: GameMode }
   | { type: "play"; cardIds: string[] }
   | { type: "discard"; cardIds: string[] }
-  | { type: "pick-relic"; relicId: string }
+  | { type: "pick-relic"; relicId: string; replaceId?: string }
   | { type: "ready" }
   | { type: "add-bot" }
   | { type: "remove-bot"; playerId: string }

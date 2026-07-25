@@ -57,6 +57,11 @@ export class TableScene {
   private reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   private onCardClick?: (cardId: string) => void;
   private onCardHover?: (cardId: string | null) => void;
+  private onCardReorder?: (cardId: string, toIndex: number, finished: boolean) => void;
+  private dragCandidate?: { cardId: string; pointerId: number; x: number; y: number };
+  private draggingId: string | null = null;
+  private dragIndex = -1;
+  private dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -0.8);
   private homeCards: Card[] = [
     { id: "demo-h-14", suit: "hearts", rank: 14 },
     { id: "demo-s-13", suit: "spades", rank: 13 },
@@ -91,9 +96,14 @@ export class TableScene {
     this.animate();
   }
 
-  setCallbacks(onClick: (cardId: string) => void, onHover: (cardId: string | null) => void): void {
+  setCallbacks(
+    onClick: (cardId: string) => void,
+    onHover: (cardId: string | null) => void,
+    onReorder: (cardId: string, toIndex: number, finished: boolean) => void
+  ): void {
     this.onCardClick = onClick;
     this.onCardHover = onHover;
+    this.onCardReorder = onReorder;
   }
 
   setMode(mode: SceneMode): void {
@@ -205,10 +215,18 @@ export class TableScene {
       } else {
         this.spawnGhostHand(event.cards, event.playerId);
       }
-      const power = Math.min(2.4, 0.65 + event.score.total / 500);
+      const fires = event.score.enginePulses.filter((pulse) => pulse.kind === "fire").length;
+      const growth = event.score.enginePulses.filter((pulse) => pulse.kind === "grow").length;
+      const power = Math.min(3.2, 0.65 + event.score.total / 500 + fires * 0.7 + growth * 0.2);
       setTimeout(() => this.burst(power, event.playerId === ownId ? "#e8b057" : "#7aa79a"), ownPlay ? 350 : 100);
-      this.cameraShake = Math.max(this.cameraShake, power * 0.08);
-      this.scorePulse = 1;
+      event.score.enginePulses.slice(0, 3).forEach((pulse, index) => {
+        const color =
+          pulse.kind === "fire" ? "#e45f45" : pulse.kind === "grow" ? "#d8a746" : "#66a696";
+        const pulsePower = pulse.kind === "fire" ? 2.6 : pulse.kind === "grow" ? 1.45 : 0.85;
+        setTimeout(() => this.burst(pulsePower, color), (ownPlay ? 430 : 170) + index * 125);
+      });
+      this.cameraShake = Math.max(this.cameraShake, power * (fires ? 0.115 : 0.08));
+      this.scorePulse = fires ? 1.65 : growth ? 1.25 : 1;
     }
     if (event.kind === "cards-discarded" && event.playerId === ownId) {
       event.cards.forEach((card) => {
@@ -253,10 +271,22 @@ export class TableScene {
   private bind(): void {
     window.addEventListener("resize", () => this.resize());
     this.canvas.addEventListener("pointermove", (event) => this.handlePointer(event));
-    this.canvas.addEventListener("pointerleave", () => this.setHovered(null));
     this.canvas.addEventListener("pointerdown", (event) => {
       const id = this.cardAtPointer(event);
-      if (id && !id.startsWith("demo-")) this.onCardClick?.(id);
+      if (!id || id.startsWith("demo-") || this.mode !== "playing") return;
+      this.dragCandidate = {
+        cardId: id,
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY
+      };
+      this.canvas.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+    this.canvas.addEventListener("pointerup", (event) => this.finishPointer(event));
+    this.canvas.addEventListener("pointercancel", (event) => this.finishPointer(event, true));
+    this.canvas.addEventListener("pointerleave", () => {
+      if (!this.dragCandidate) this.setHovered(null);
     });
   }
 
@@ -491,6 +521,11 @@ export class TableScene {
     const usableWidth = home ? 5.4 : Math.min(8.7, Math.max(5.8, window.innerWidth / 145));
     const spacing = Math.min(home ? 0.82 : 1.05, usableWidth / Math.max(1, count - 1));
     active.forEach((object, index) => {
+      if (object.card.id === this.draggingId) {
+        object.targetPosition.z = 2.4;
+        object.targetRotation.set(-0.08, 0, 0);
+        return;
+      }
       const centered = index - (active.length - 1) / 2;
       const arc = Math.abs(centered) * 0.035;
       const lift = object.selected ? 0.54 : object.hovered ? 0.2 : 0;
@@ -646,15 +681,80 @@ export class TableScene {
   }
 
   private handlePointer(event: PointerEvent): void {
+    if (this.dragCandidate && this.dragCandidate.pointerId === event.pointerId) {
+      const distance = Math.hypot(
+        event.clientX - this.dragCandidate.x,
+        event.clientY - this.dragCandidate.y
+      );
+      if (!this.draggingId && distance > 7) {
+        this.draggingId = this.dragCandidate.cardId;
+        this.dragIndex = this.handObjects.get(this.draggingId)?.index ?? 0;
+        this.canvas.classList.add("is-dragging-card");
+        this.setHovered(null);
+        this.onCardReorder?.(this.draggingId, this.dragIndex, false);
+      }
+      if (this.draggingId) {
+        const object = this.handObjects.get(this.draggingId);
+        const point = this.tablePointAtPointer(event);
+        if (object && point) {
+          object.targetPosition.x = THREE.MathUtils.clamp(point.x, -4.8, 4.8);
+          object.targetPosition.y = THREE.MathUtils.clamp(point.y, -3.35, -1.65);
+          object.targetPosition.z = 2.4;
+          const others = [...this.handObjects.values()]
+            .filter((candidate) => !candidate.outgoing && candidate.card.id !== this.draggingId)
+            .sort((left, right) => left.index - right.index);
+          const nextIndex = others.filter(
+            (candidate) => candidate.targetPosition.x < object.targetPosition.x
+          ).length;
+          if (nextIndex !== this.dragIndex) {
+            this.dragIndex = nextIndex;
+            this.onCardReorder?.(this.draggingId, nextIndex, false);
+          }
+        }
+        event.preventDefault();
+        return;
+      }
+    }
     const id = this.cardAtPointer(event);
     this.setHovered(id?.startsWith("demo-") ? null : id);
   }
 
-  private cardAtPointer(event: PointerEvent): string | null {
+  private finishPointer(event: PointerEvent, cancelled = false): void {
+    const candidate = this.dragCandidate;
+    if (!candidate || candidate.pointerId !== event.pointerId) return;
+    if (this.canvas.hasPointerCapture(event.pointerId)) {
+      this.canvas.releasePointerCapture(event.pointerId);
+    }
+    if (this.draggingId) {
+      const draggedId = this.draggingId;
+      const finalIndex = this.dragIndex;
+      this.draggingId = null;
+      this.dragIndex = -1;
+      this.canvas.classList.remove("is-dragging-card");
+      this.layoutHand([...this.handObjects.values()].filter((object) => !object.outgoing).length);
+      if (!cancelled) this.onCardReorder?.(draggedId, finalIndex, true);
+    } else if (!cancelled) {
+      this.onCardClick?.(candidate.cardId);
+    }
+    this.dragCandidate = undefined;
+  }
+
+  private tablePointAtPointer(event: PointerEvent): THREE.Vector3 | null {
+    this.updateRaycaster(event);
+    const point = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(this.dragPlane, point)) return null;
+    return this.table.worldToLocal(point);
+  }
+
+  private updateRaycaster(event: PointerEvent): void {
     const rect = this.canvas.getBoundingClientRect();
     this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     this.raycaster.setFromCamera(this.pointer, this.camera);
+  }
+
+  private cardAtPointer(event: PointerEvent): string | null {
+    this.updateRaycaster(event);
     const intersections = this.raycaster.intersectObjects(this.pickTargets, false);
     for (const intersection of intersections) {
       const id = intersection.object.userData.cardId as string | undefined;
@@ -707,7 +807,11 @@ export class TableScene {
       object.group.rotation.x = THREE.MathUtils.lerp(object.group.rotation.x, object.targetRotation.x, ease);
       object.group.rotation.y = THREE.MathUtils.lerp(object.group.rotation.y, object.targetRotation.y, ease);
       object.group.rotation.z = THREE.MathUtils.lerp(object.group.rotation.z, object.targetRotation.z, ease);
-      const desiredScale = object.outgoing ? 0.96 : 1;
+      const desiredScale = object.outgoing
+        ? 0.96
+        : object.card.id === this.draggingId
+          ? 1.06
+          : 1;
       object.group.scale.lerp(new THREE.Vector3(desiredScale, desiredScale, desiredScale), ease);
       if (!this.reduceMotion && this.mode === "home") {
         object.group.position.y += Math.sin(time * 1.2 + object.index * 0.7) * 0.0018;
