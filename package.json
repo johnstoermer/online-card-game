@@ -1,0 +1,44 @@
+{
+  "name": "online-card-game",
+  "version": "1.0.0",
+  "private": false,
+  "type": "module",
+  "description": "A polished cooperative poker-combo roguelite with a voxel 3D table and real-time multiplayer.",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "tsc --noEmit && vite build && npm run build:server",
+    "build:client": "tsc --noEmit && vite build",
+    "build:server": "tsc -p server/tsconfig.json",
+    "start": "node server-dist/server/index.js",
+    "test": "vitest run shared",
+    "qa": "node scripts/qa.mjs"
+  },
+  "keywords": [
+    "card-game",
+    "multiplayer",
+    "poker",
+    "roguelite",
+    "threejs"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@fontsource-variable/fraunces": "^5.2.8",
+    "@fontsource-variable/manrope": "^5.2.8",
+    "three": "^0.185.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0",
+    "@types/three": "^0.185.0",
+    "@types/ws": "^8.18.1",
+    "playwright-core": "^1.62.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.2",
+    "vitest": "^4.0.8"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

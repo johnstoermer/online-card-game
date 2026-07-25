@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Online Card Game is a cooperative poker-combo roguelite played around a tactile voxel table."
+    />
+    <meta name="theme-color" content="#071612" />
+    <meta property="og:title" content="Online Card Game" />
+    <meta
+      property="og:description"
+      content="Build impossible poker engines with friends around a tactile voxel table."
+    />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <title>Online Card Game</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="table-canvas" aria-label="Animated three-dimensional card table"></canvas>
+      <div class="atmosphere" aria-hidden="true"></div>
+      <div class="screen-grain" aria-hidden="true"></div>
+
+      <header class="site-header">
+        <a class="wordmark" href="#" aria-label="Online Card Game home">
+          <span class="wordmark-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+          <span>OCG</span>
+        </a>
+        <div class="header-rule"></div>
+        <button class="text-button" id="how-button" type="button">How to play</button>
+        <button class="sound-button" id="sound-button" type="button" aria-pressed="false">
+          Sound on
+        </button>
+      </header>
+
+      <main>
+        <section class="home-screen" id="home-screen" aria-labelledby="game-title">
+          <div class="hero-copy">
+            <p class="eyebrow">A cooperative poker machine</p>
+            <h1 id="game-title">
+              <span>Online</span>
+              <span>Card Game</span>
+            </h1>
+            <p class="hero-deck">Build the hand. Break the house. Bring friends.</p>
+            <div class="edition-line">
+              <span>First table edition</span>
+              <span>1–4 players</span>
+              <span>Live rooms</span>
+            </div>
+          </div>
+
+          <div class="entry-console" id="entry-console">
+            <div class="console-index" aria-hidden="true">No. 001</div>
+            <div class="console-heading">
+              <p>Open a table</p>
+              <span>Choose a name. Friends can join with a four-letter key.</span>
+            </div>
+            <label class="field-label" for="player-name">Name at the table</label>
+            <input
+              class="paper-input"
+              id="player-name"
+              name="player-name"
+              maxlength="18"
+              autocomplete="nickname"
+              placeholder="Cardsharp"
+            />
+            <button class="primary-button broad" id="create-button" type="button">
+              <span>Create private table</span>
+              <span class="button-key">Enter</span>
+            </button>
+            <div class="console-divider"><span>or join a table</span></div>
+            <div class="join-row">
+              <input
+                class="paper-input room-input"
+                id="room-code"
+                name="room-code"
+                maxlength="4"
+                autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                aria-label="Four-letter table key"
+                placeholder="KEY"
+              />
+              <button class="secondary-button" id="join-button" type="button">Take a seat</button>
+            </div>
+            <p class="entry-status" id="entry-status" role="status"></p>
+          </div>
+
+          <div class="hero-note">
+            <span class="note-number">01</span>
+            <p>
+              Every player brings three hands and two redraws. Vary your poker hands to wind the
+              shared echo chain.
+            </p>
+          </div>
+        </section>
+
+        <section class="game-screen is-hidden" id="game-screen" aria-label="Game table">
+          <div class="round-plate">
+            <span class="round-kicker">Contract</span>
+            <strong id="round-label">Round 1</strong>
+            <span id="round-type">Open table</span>
+          </div>
+
+          <aside class="score-instrument" aria-label="Shared contract score">
+            <div class="instrument-topline">
+              <span>Shared score</span>
+              <span id="score-percent">0%</span>
+            </div>
+            <div class="score-numbers">
+              <strong id="team-score">0</strong>
+              <span>/ <b id="target-score">260</b></span>
+            </div>
+            <div class="score-track" aria-hidden="true">
+              <div class="score-fill" id="score-fill"></div>
+              <i class="score-marker"></i>
+            </div>
+            <div class="chain-readout" id="chain-readout">
+              <span>Echo chain</span>
+              <div class="chain-cells" aria-label="Zero chain">
+                <i></i><i></i><i></i><i></i><i></i>
+              </div>
+              <b id="chain-value">Quiet</b>
+            </div>
+          </aside>
+
+          <aside class="player-ledger" id="player-ledger" aria-label="Players at the table"></aside>
+
+          <aside class="boss-notice is-hidden" id="boss-notice">
+            <span>House rule</span>
+            <strong id="boss-name"></strong>
+            <p id="boss-rule"></p>
+          </aside>
+
+          <div class="table-message" id="table-message" aria-live="polite">
+            <span id="message-player"></span>
+            <strong id="message-hand"></strong>
+            <div class="message-score">
+              <b id="message-chips"></b>
+              <span>×</span>
+              <b id="message-mult"></b>
+              <i></i>
+              <strong id="message-total"></strong>
+            </div>
+          </div>
+
+          <div class="action-dock" id="action-dock">
+            <div class="hand-reading">
+              <span id="selection-label">Choose up to five cards</span>
+              <strong id="preview-hand">No hand selected</strong>
+              <span id="preview-score">Cards are scored when played</span>
+            </div>
+            <div class="action-buttons">
+              <button class="discard-button" id="discard-button" type="button" disabled>
+                <span>Discard</span>
+                <small id="discard-count">2 left</small>
+              </button>
+              <button class="play-button" id="play-button" type="button" disabled>
+                <span>Play hand</span>
+                <small id="hands-count">3 left</small>
+              </button>
+            </div>
+            <div class="keyboard-guide">
+              <span><kbd>1–8</kbd> select</span>
+              <span><kbd>D</kbd> discard</span>
+              <span><kbd>Enter</kbd> play</span>
+            </div>
+          </div>
+
+          <div class="relic-rack" id="relic-rack" aria-label="Your relics"></div>
+        </section>
+      </main>
+
+      <div class="modal-layer is-hidden" id="modal-layer">
+        <section class="table-modal lobby-modal is-hidden" id="lobby-modal" role="dialog" aria-modal="true">
+          <div class="modal-register">
+            <span>Table register</span>
+            <b>Private room</b>
+          </div>
+          <h2>The table is open.</h2>
+          <p class="modal-intro">Send the key to your friends, or fill empty chairs with house players.</p>
+          <div class="invite-slip">
+            <span>Table key</span>
+            <strong id="lobby-code">----</strong>
+            <button class="copy-button" id="copy-button" type="button">Copy invitation</button>
+          </div>
+          <div class="seat-list" id="seat-list"></div>
+          <div class="lobby-actions">
+            <button class="secondary-button" id="add-bot-button" type="button">Add house player</button>
+            <button class="primary-button" id="start-button" type="button">Deal the first round</button>
+          </div>
+          <p class="modal-footnote" id="lobby-footnote">You are the host.</p>
+        </section>
+
+        <section
+          class="table-modal relic-modal is-hidden"
+          id="relic-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="relic-title"
+        >
+          <div class="modal-register">
+            <span>Workshop interval</span>
+            <b id="clear-stamp">Contract cleared</b>
+          </div>
+          <h2 id="relic-title">Choose one part.</h2>
+          <p class="modal-intro">It stays in your machine for the rest of this run.</p>
+          <div class="relic-choices" id="relic-choices"></div>
+          <div class="ready-line">
+            <div id="ready-status">Pick a relic to continue.</div>
+            <button class="primary-button" id="ready-button" type="button" disabled>Ready for next deal</button>
+          </div>
+        </section>
+
+        <section
+          class="table-modal gameover-modal is-hidden"
+          id="gameover-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="gameover-title"
+        >
+          <div class="failure-seal" aria-hidden="true"><span>Contract</span><strong>Closed</strong></div>
+          <p class="eyebrow">The house held.</p>
+          <h2 id="gameover-title">The machine ran dry.</h2>
+          <p id="gameover-copy" class="modal-intro"></p>
+          <div class="run-totals">
+            <div><span>Rounds cleared</span><strong id="rounds-cleared">0</strong></div>
+            <div><span>Table score</span><strong id="run-score">0</strong></div>
+          </div>
+          <button class="primary-button" id="restart-button" type="button">Run the table again</button>
+          <p class="modal-footnote" id="restart-footnote"></p>
+        </section>
+      </div>
+
+      <div class="guide-layer is-hidden" id="guide-layer">
+        <section class="guide-book" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+          <button class="guide-close" id="guide-close" type="button" aria-label="Close instructions">Close</button>
+          <p class="eyebrow">Table instructions</p>
+          <h2 id="guide-title">Make poker hands. Build a machine.</h2>
+          <div class="guide-grid">
+            <article>
+              <span class="guide-index">01</span>
+              <h3>Choose your hand</h3>
+              <p>Select one to five cards. Familiar poker patterns begin with pairs and climb through flushes and straights.</p>
+            </article>
+            <article>
+              <span class="guide-index">02</span>
+              <h3>Score the contract</h3>
+              <p>Card chips and hand chips are multiplied by the hand's multiplier. Reach the shared target before every player spends three hands.</p>
+            </article>
+            <article>
+              <span class="guide-index">03</span>
+              <h3>Wind the echo</h3>
+              <p>Play a different hand type than the previous player to raise the echo chain. Repeating a hand drops it to quiet.</p>
+            </article>
+            <article>
+              <span class="guide-index">04</span>
+              <h3>Rebuild between rounds</h3>
+              <p>Each cleared contract gives every player a permanent relic. Every third round adds a hostile house rule.</p>
+            </article>
+          </div>
+          <div class="hand-order">
+            <span>Hand order</span>
+            <p>High card · Pair · Two pair · Three of a kind · Straight · Flush · Full house · Four of a kind · Straight flush</p>
+          </div>
+        </section>
+      </div>
+
+      <div class="toast-stack" id="toast-stack" aria-live="polite"></div>
+      <div class="connection-flag is-hidden" id="connection-flag">Reconnecting to the table…</div>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>
