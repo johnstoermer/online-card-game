@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
-      content="Online Card Game is a multiplayer poker-engine roguelite played around a tactile voxel table."
+      content="Online Card Game is a multiplayer poker roguelite played around a tactile voxel table that changes as you build."
     />
     <meta name="theme-color" content="#071612" />
     <meta property="og:title" content="Online Card Game" />
     <meta
       property="og:description"
-      content="Build impossible poker engines with or against friends around a tactile voxel table."
+      content="Dress a tactile voxel poker table with scoring pieces while playing with or against friends."
     />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <title>Online Card Game</title>
@@ -143,7 +143,7 @@
               <i></i>
               <strong id="message-total"></strong>
             </div>
-            <div class="message-engine" id="message-engine"></div>
+            <div class="message-table" id="message-table"></div>
           </div>
 
           <div class="action-dock" id="action-dock">
@@ -179,7 +179,7 @@
             </div>
           </div>
 
-          <div class="relic-rack" id="relic-rack" aria-label="Your five-part engine"></div>
+          <div class="relic-rack" id="relic-rack" aria-label="Your five table pieces"></div>
         </section>
       </main>
 
@@ -227,12 +227,12 @@
             <span>Workshop interval</span>
             <b id="clear-stamp">Contract cleared</b>
           </div>
-          <h2 id="relic-title">Install one part.</h2>
-          <p class="modal-intro">Build a five-part engine. Every trigger, charge, and calibration persists across rounds.</p>
-          <div class="engine-bench is-hidden" id="engine-bench"></div>
+          <h2 id="relic-title">Set one piece on the table.</h2>
+          <p class="modal-intro">Every choice physically changes the felt. Its chips, rings, counters, and stored value persist across rounds.</p>
+          <div class="table-bench is-hidden" id="table-bench"></div>
           <div class="relic-choices" id="relic-choices"></div>
           <div class="ready-line">
-            <div id="ready-status">Pick a part to continue.</div>
+            <div id="ready-status">Pick a piece to continue.</div>
             <button class="primary-button" id="ready-button" type="button" disabled>Ready for next deal</button>
           </div>
         </section>
@@ -263,7 +263,7 @@
         <section class="guide-book" role="dialog" aria-modal="true" aria-labelledby="guide-title">
           <button class="guide-close" id="guide-close" type="button" aria-label="Close instructions">Close</button>
           <p class="eyebrow">Table instructions</p>
-          <h2 id="guide-title">Make poker hands. Build a machine.</h2>
+          <h2 id="guide-title">Make poker hands. Dress the table.</h2>
           <div class="guide-grid">
             <article>
               <span class="guide-index">01</span>
@@ -282,8 +282,8 @@
             </article>
             <article>
               <span class="guide-index">04</span>
-              <h3>Rebuild between rounds</h3>
-              <p>Install up to five stateful parts. Feeders collect cards, scalers grow, and payoff parts fire multipliers. Replace a part when the rack is full.</p>
+              <h3>Dress the table</h3>
+              <p>Set up to five persistent pieces on the felt. Chip stacks grow, markers rise, bells ring, and Red Felt relines the whole table. Replace one when every space is occupied.</p>
             </article>
           </div>
           <div class="hand-order">

@@ -953,7 +953,7 @@ h1 span:last-child {
   font-size: 26px;
 }
 
-.message-engine {
+.message-table {
   margin: 8px -10px -5px;
   display: flex;
   justify-content: center;
@@ -961,7 +961,7 @@ h1 span:last-child {
   gap: 4px;
 }
 
-.engine-pulse {
+.table-pulse {
   padding: 4px 7px;
   color: #b8c7bd;
   background: #10251e;
@@ -970,17 +970,17 @@ h1 span:last-child {
   letter-spacing: 0.04em;
 }
 
-.engine-pulse b {
+.table-pulse b {
   color: var(--paper);
   font-weight: 800;
 }
 
-.engine-pulse.is-grow {
+.table-pulse.is-grow {
   border-color: rgba(208, 162, 83, 0.55);
   color: #ddc18e;
 }
 
-.engine-pulse.is-fire {
+.table-pulse.is-fire {
   color: #ffd7a3;
   background: #63291f;
   border-color: #df8069;
@@ -1569,7 +1569,7 @@ kbd {
   width: min(900px, 100%);
 }
 
-.engine-bench {
+.table-bench {
   margin: 20px 0 18px;
   padding: 12px;
   background: #cdbb96;

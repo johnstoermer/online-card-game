@@ -1,6 +1,6 @@
 # Online Card Game
 
-Online Card Game is an original multiplayer poker-engine roguelite for one to four players. It combines a tactile voxel-style 3D table with server-authoritative rooms, reconnectable sessions, house-player support, procedural sound, and responsive keyboard, pointer, and touch controls.
+Online Card Game is an original multiplayer poker roguelite for one to four players. It combines a tactile voxel-style 3D table with server-authoritative rooms, reconnectable sessions, house-player support, procedural sound, and responsive keyboard, pointer, and touch controls.
 
 ## Game loop
 
@@ -8,9 +8,9 @@ Online Card Game is an original multiplayer poker-engine roguelite for one to fo
 - Poker hands score `chips × multiplier`. Changing the previous hand type builds a shared echo chain worth up to `×1.75`.
 - Cooperative contracts combine every player's score against an escalating target.
 - Table Versus gives every seat the same hand budget. The highest personal score wins the round, and the first player to three round wins takes the match.
-- After each successful contract or versus round, every player installs one persistent part in a five-slot engine.
-- Engine parts are feeders, patterns, rhythms, and payoffs. They log cards across hands, store charge, scale permanently, and fire multiplicative effects.
-- Once all five engine slots are occupied, adding a part requires retiring an installed one; its stored state leaves with it.
+- After each successful contract or versus round, every player sets one persistent piece on their table.
+- Every piece is a poker-table object with a scoring rule and a physical 3D result: stacks gain chips, betting plaques rise, card guards light, the call bell winds toward its third ring, and Red Felt relines the entire playing surface.
+- A table holds five pieces. Adding another requires clearing one occupied space, and the removed object's stored state leaves with it.
 - Every third round is a boss contract with a hostile house rule.
 - If a player disconnects, the server preserves their seat and temporarily pilots their remaining hands so the table cannot deadlock.
 
@@ -49,7 +49,7 @@ npm run qa
 npm run qa:versus
 ```
 
-The QA scripts expect a built server running at `http://localhost:8080`. The browser pass opens isolated sessions, validates responsive layout and hand-sort controls, plays a cooperative contract through engine installation, and completes a two-player versus round. The versus protocol pass plays an entire first-to-three match and verifies persistent engines, win tallies, and the final match event. Set `QA_URL`, `QA_WS_URL`, or `CHROME_PATH` to override their defaults.
+The QA scripts expect a built server running at `http://localhost:8080`. The browser pass opens isolated sessions, validates responsive layout and hand-sort controls, plays a cooperative contract through table-piece placement, and completes a two-player versus round. The versus protocol pass plays an entire first-to-three match and verifies persistent table state, win tallies, and the final match event. Set `QA_URL`, `QA_WS_URL`, or `CHROME_PATH` to override their defaults.
 
 ## Deployment
 

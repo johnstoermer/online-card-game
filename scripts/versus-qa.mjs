@@ -121,7 +121,7 @@ async function playRemainingHands(seat) {
 
 async function installAndReady(seat) {
   const choice = seat.state?.relicChoices[0];
-  if (!choice) throw new Error(`${seat.name} was not offered an engine part.`);
+  if (!choice) throw new Error(`${seat.name} was not offered a table piece.`);
   const picked = seat.waitForState(
     (state) => state.players.find((player) => player.id === seat.clientId)?.pickedRelic
   );
@@ -194,7 +194,7 @@ try {
   }
 
   console.log(
-    `Versus protocol QA passed: ${winner.name} won room ${host.roomCode} in ${host.state.round} rounds with ${winner.relics.length} engine parts.`
+    `Versus protocol QA passed: ${winner.name} won room ${host.roomCode} in ${host.state.round} rounds with ${winner.relics.length} table pieces.`
   );
 } finally {
   host.close();

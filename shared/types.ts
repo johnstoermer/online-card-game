@@ -22,14 +22,14 @@ export type HandKey =
 export type RoomPhase = "lobby" | "playing" | "intermission" | "gameover";
 export type GameMode = "cooperative" | "versus";
 
-export interface RelicDefinition {
+export interface TablePieceDefinition {
   id: string;
   name: string;
   description: string;
   short: string;
   tone: "copper" | "red" | "ivory" | "black" | "green" | "blue";
-  category: "feeder" | "pattern" | "rhythm" | "payoff";
-  build: string;
+  category: "counter" | "marker" | "ritual" | "payout";
+  tableEffect: string;
 }
 
 export interface BossDefinition {
@@ -71,7 +71,7 @@ export interface RoomView {
   deckRemaining: number;
   relicChoices: string[];
   ownRelics: string[];
-  ownEngineState: Record<string, number>;
+  ownTableState: Record<string, number>;
   roundWinnerIds: string[];
   matchWinnerIds: string[];
   eventNumber: number;
@@ -88,18 +88,18 @@ export interface ScoreBreakdown {
   bonusMultiplier: number;
   chainMultiplier: number;
   bossMultiplier: number;
-  engineMultiplier: number;
+  tableMultiplier: number;
   finalChips: number;
   finalMultiplier: number;
   total: number;
   chain: number;
   notes: string[];
-  engineStateAfter: Record<string, number>;
-  enginePulses: EnginePulse[];
+  tableStateAfter: Record<string, number>;
+  tablePulses: TablePulse[];
 }
 
-export interface EnginePulse {
-  relicId: string;
+export interface TablePulse {
+  pieceId: string;
   label: string;
   detail: string;
   kind: "charge" | "grow" | "fire";

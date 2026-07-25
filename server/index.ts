@@ -5,11 +5,11 @@ import { WebSocket, WebSocketServer } from "ws";
 import {
   bossForRound,
   createDeck,
-  MAX_ENGINE_SLOTS,
-  RELICS,
+  MAX_TABLE_PIECES,
   roundTarget,
   scoreHand,
   shuffled,
+  TABLE_PIECES,
   VERSUS_WINS_TO_MATCH
 } from "../shared/game.js";
 import type {
@@ -46,7 +46,7 @@ interface Player {
   totalScore: number;
   roundWins: number;
   relics: string[];
-  engineState: Record<string, number>;
+  tableState: Record<string, number>;
   relicChoices: string[];
   pickedRelic: boolean;
   ready: boolean;
@@ -214,7 +214,7 @@ function createPlayer(name: string, sessionId?: string, isBot = false): Player {
     totalScore: 0,
     roundWins: 0,
     relics: [],
-    engineState: {},
+    tableState: {},
     relicChoices: [],
     pickedRelic: false,
     ready: false
@@ -267,7 +267,7 @@ function roomView(room: Room, viewer: Player): RoomView {
     deckRemaining: viewer.deck.length,
     relicChoices: [...viewer.relicChoices],
     ownRelics: [...viewer.relics],
-    ownEngineState: { ...viewer.engineState },
+    ownTableState: { ...viewer.tableState },
     roundWinnerIds: [...room.roundWinnerIds],
     matchWinnerIds: [...room.matchWinnerIds],
     eventNumber: room.eventNumber,
@@ -352,7 +352,7 @@ function resetRun(room: Room): void {
     player.roundScore = 0;
     player.roundWins = 0;
     player.relics = [];
-    player.engineState = {};
+    player.tableState = {};
     player.relicChoices = [];
     player.pickedRelic = false;
     player.ready = false;
@@ -361,10 +361,10 @@ function resetRun(room: Room): void {
 }
 
 function pickRelicChoices(player: Player): string[] {
-  const remaining = RELICS.filter((relic) => !player.relics.includes(relic.id));
+  const remaining = TABLE_PIECES.filter((piece) => !player.relics.includes(piece.id));
   return shuffled(remaining)
     .slice(0, Math.min(3, remaining.length))
-    .map((relic) => relic.id);
+    .map((piece) => piece.id);
 }
 
 function enterIntermission(room: Room): void {
@@ -375,12 +375,12 @@ function enterIntermission(room: Room): void {
     player.ready = false;
     if (player.isBot && player.relicChoices.length) {
       const relicId = player.relicChoices[0];
-      if (player.relics.length >= MAX_ENGINE_SLOTS) {
+      if (player.relics.length >= MAX_TABLE_PIECES) {
         const removed = player.relics.shift();
-        if (removed) delete player.engineState[removed];
+        if (removed) delete player.tableState[removed];
       }
       player.relics.push(relicId);
-      player.engineState[relicId] = 0;
+      player.tableState[relicId] = 0;
       player.pickedRelic = true;
     }
     if (player.isBot) player.ready = true;
@@ -490,8 +490,8 @@ function playCards(room: Room, player: Player, cardIds: string[]): void {
   }
 
   const breakdown = scoreHand(selected, {
-    relicIds: player.relics,
-    engineState: player.engineState,
+    pieceIds: player.relics,
+    tableState: player.tableState,
     previousHand: room.lastHand,
     chain: room.chain,
     boss: bossForRound(room.round),
@@ -499,7 +499,7 @@ function playCards(room: Room, player: Player, cardIds: string[]): void {
   });
 
   player.handsLeft -= 1;
-  player.engineState = breakdown.engineStateAfter;
+  player.tableState = breakdown.tableStateAfter;
   player.roundScore += breakdown.total;
   player.totalScore += breakdown.total;
   room.teamScore =
@@ -566,8 +566,8 @@ function bestBotCards(room: Room, player: Player): Card[] {
   let bestScore = -1;
   for (const candidate of candidates) {
     const score = scoreHand(candidate, {
-      relicIds: player.relics,
-      engineState: player.engineState,
+      pieceIds: player.relics,
+      tableState: player.tableState,
       previousHand: room.lastHand,
       chain: room.chain,
       boss: bossForRound(room.round),
@@ -729,21 +729,21 @@ function handleAction(ws: WebSocket, message: ClientMessage): void {
   if (message.type === "pick-relic") {
     if (room.phase !== "intermission" || player.pickedRelic) return;
     if (!player.relicChoices.includes(message.relicId)) {
-      return sendError(ws, "That relic is not available.");
+      return sendError(ws, "That table piece is not available.");
     }
     let replacedRelicId: string | undefined;
-    if (player.relics.length >= MAX_ENGINE_SLOTS) {
+    if (player.relics.length >= MAX_TABLE_PIECES) {
       if (!message.replaceId || !player.relics.includes(message.replaceId)) {
         return sendError(ws, "Choose an installed part to replace.");
       }
       const slot = player.relics.indexOf(message.replaceId);
       replacedRelicId = message.replaceId;
       player.relics.splice(slot, 1, message.relicId);
-      delete player.engineState[message.replaceId];
+      delete player.tableState[message.replaceId];
     } else {
       player.relics.push(message.relicId);
     }
-    player.engineState[message.relicId] = 0;
+    player.tableState[message.relicId] = 0;
     player.pickedRelic = true;
     emit(room, {
       kind: "relic-picked",
@@ -841,12 +841,12 @@ wss.on("connection", (ws) => {
     if (room.phase === "intermission") {
       if (!player.pickedRelic && player.relicChoices.length) {
         const relicId = player.relicChoices[0];
-        if (player.relics.length >= MAX_ENGINE_SLOTS) {
+        if (player.relics.length >= MAX_TABLE_PIECES) {
           const removed = player.relics.shift();
-          if (removed) delete player.engineState[removed];
+          if (removed) delete player.tableState[removed];
         }
         player.relics.push(relicId);
-        player.engineState[relicId] = 0;
+        player.tableState[relicId] = 0;
         player.pickedRelic = true;
       }
       player.ready = true;

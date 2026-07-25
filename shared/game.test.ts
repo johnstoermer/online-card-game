@@ -22,9 +22,9 @@ describe("poker evaluation", () => {
     ).toBe("flush");
   });
 
-  it("scores relics and chain bonuses", () => {
+  it("scores table pieces and chain bonuses", () => {
     const result = scoreHand(cards([8, 8]), {
-      relicIds: ["brass-knuckle"],
+      pieceIds: ["brass-knuckle"],
       previousHand: "high-card",
       chain: 1,
       boss: null,
@@ -36,35 +36,35 @@ describe("poker evaluation", () => {
     expect(result.total).toBeGreaterThan(80);
   });
 
-  it("fires a charged Echo Coil and carries its remainder state", () => {
+  it("rings a charged Call Bell and carries its remainder state", () => {
     const result = scoreHand(cards([2, 3, 4, 5, 6]), {
-      relicIds: ["echo-coil"],
-      engineState: { "echo-coil": 2 },
+      pieceIds: ["echo-coil"],
+      tableState: { "echo-coil": 2 },
       previousHand: "pair",
       chain: 1,
       boss: null,
       handsLeftBeforePlay: 2
     });
 
-    expect(result.engineMultiplier).toBe(2);
-    expect(result.engineStateAfter["echo-coil"]).toBe(0);
-    expect(result.enginePulses).toContainEqual(
-      expect.objectContaining({ relicId: "echo-coil", kind: "fire" })
+    expect(result.tableMultiplier).toBe(2);
+    expect(result.tableStateAfter["echo-coil"]).toBe(0);
+    expect(result.tablePulses).toContainEqual(
+      expect.objectContaining({ pieceId: "echo-coil", kind: "fire" })
     );
   });
 
   it("grows feeder values only after their calibration threshold", () => {
     const thresholdHand = scoreHand(cards([4, 9], "hearts"), {
-      relicIds: ["red-lens"],
-      engineState: { "red-lens": 9 },
+      pieceIds: ["red-lens"],
+      tableState: { "red-lens": 9 },
       previousHand: null,
       chain: 0,
       boss: null,
       handsLeftBeforePlay: 3
     });
     const calibratedHand = scoreHand(cards([7], "hearts"), {
-      relicIds: ["red-lens"],
-      engineState: thresholdHand.engineStateAfter,
+      pieceIds: ["red-lens"],
+      tableState: thresholdHand.tableStateAfter,
       previousHand: thresholdHand.hand,
       chain: thresholdHand.chain,
       boss: null,
@@ -72,23 +72,23 @@ describe("poker evaluation", () => {
     });
 
     expect(thresholdHand.bonusChips).toBe(16);
-    expect(thresholdHand.engineStateAfter["red-lens"]).toBe(11);
-    expect(thresholdHand.enginePulses[0]).toMatchObject({ kind: "grow" });
+    expect(thresholdHand.tableStateAfter["red-lens"]).toBe(11);
+    expect(thresholdHand.tablePulses[0]).toMatchObject({ kind: "grow" });
     expect(calibratedHand.bonusChips).toBe(10);
   });
 
   it("banks permanent multiplier from spades across later hands", () => {
     const banked = scoreHand(cards([10], "spades"), {
-      relicIds: ["black-key"],
-      engineState: { "black-key": 4 },
+      pieceIds: ["black-key"],
+      tableState: { "black-key": 4 },
       previousHand: null,
       chain: 0,
       boss: null,
       handsLeftBeforePlay: 3
     });
     const later = scoreHand(cards([2, 6], "clubs"), {
-      relicIds: ["black-key"],
-      engineState: banked.engineStateAfter,
+      pieceIds: ["black-key"],
+      tableState: banked.tableStateAfter,
       previousHand: banked.hand,
       chain: banked.chain,
       boss: null,
@@ -96,22 +96,22 @@ describe("poker evaluation", () => {
     });
 
     expect(banked.bonusMultiplier).toBe(1);
-    expect(banked.engineStateAfter["black-key"]).toBe(5);
+    expect(banked.tableStateAfter["black-key"]).toBe(5);
     expect(later.bonusMultiplier).toBe(1);
   });
 
-  it("resolves every full Ace Bearing charge in one hand", () => {
+  it("resolves every full Ace Guard charge in one hand", () => {
     const result = scoreHand(cards([14, 14, 14, 14]), {
-      relicIds: ["ace-bearing"],
-      engineState: { "ace-bearing": 2 },
+      pieceIds: ["ace-bearing"],
+      tableState: { "ace-bearing": 2 },
       previousHand: null,
       chain: 0,
       boss: null,
       handsLeftBeforePlay: 1
     });
 
-    expect(result.engineMultiplier).toBeCloseTo(5.0625);
-    expect(result.engineStateAfter["ace-bearing"]).toBe(0);
+    expect(result.tableMultiplier).toBeCloseTo(5.0625);
+    expect(result.tableStateAfter["ace-bearing"]).toBe(0);
   });
 
   it("scales targets by round and seats", () => {

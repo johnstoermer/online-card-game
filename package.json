@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": false,
   "type": "module",
-  "description": "A polished multiplayer poker-engine roguelite with a voxel 3D table, cooperative contracts, and table-versus matches.",
+  "description": "A polished multiplayer poker roguelite with a changing voxel 3D table, cooperative contracts, and table-versus matches.",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "dev:server": "tsx watch server/index.ts",
@@ -11,7 +11,7 @@
     "build:client": "tsc --noEmit && vite build",
     "build:server": "tsc -p server/tsconfig.json",
     "start": "node server-dist/server/index.js",
-    "test": "vitest run shared",
+    "test": "vitest run shared src/table-pieces.test.ts --exclude server-dist/**",
     "qa": "node scripts/qa.mjs",
     "qa:versus": "node scripts/versus-qa.mjs"
   },

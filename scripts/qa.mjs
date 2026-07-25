@@ -165,16 +165,16 @@ try {
 
   await host.locator(".relic-choice").first().click();
   await guest.locator(".relic-choice").first().click();
-  await host.locator("#engine-bench:not(.is-hidden) .bench-part").waitFor();
+  await host.locator("#table-bench:not(.is-hidden) .bench-part").waitFor();
   await host.locator(".rack-relic:not(.is-empty)").waitFor();
-  await host.screenshot({ path: "test-results/qa-engine-workshop.png", fullPage: true });
+  await host.screenshot({ path: "test-results/qa-table-workshop.png", fullPage: true });
   await host.locator("#ready-button").click();
   await guest.locator("#ready-button").click();
   await host.locator("#modal-layer").waitFor({ state: "hidden", timeout: 5000 });
   await host.locator("#round-label").filter({ hasText: "Round 2" }).waitFor();
   await host.locator(".rack-relic:not(.is-empty)").waitFor();
   await host.waitForTimeout(1100);
-  await host.screenshot({ path: "test-results/qa-engine-table.png", fullPage: true });
+  await host.screenshot({ path: "test-results/qa-dressed-table.png", fullPage: true });
 
   await versusHost.goto(baseUrl, { waitUntil: "networkidle" });
   await versusHost.locator("#player-name").fill("Iris");
@@ -223,7 +223,7 @@ try {
 
   if (failures.length) throw new Error(failures.join("\n"));
   console.log(
-    `QA passed: cooperative room ${roomCode}, versus room ${versusCode}, sorting, engine installation, scoring, and round resolution.`
+    `QA passed: cooperative room ${roomCode}, versus room ${versusCode}, sorting, table-piece placement, scoring, and round resolution.`
   );
 } finally {
   await browser.close();

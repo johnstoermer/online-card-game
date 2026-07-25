@@ -1,18 +1,18 @@
 import "./style.css";
 import {
   HANDS,
-  MAX_ENGINE_SLOTS,
-  RELICS,
+  MAX_TABLE_PIECES,
   scoreHand,
+  TABLE_PIECES,
   VERSUS_WINS_TO_MATCH
 } from "../shared/game";
 import { moveCard, sortHand, type HandSortMode } from "../shared/sort";
 import type {
   ClientMessage,
   GameEvent,
-  RelicDefinition,
   RoomView,
-  ServerMessage
+  ServerMessage,
+  TablePieceDefinition
 } from "../shared/types";
 import { TableAudio } from "./audio";
 import { TableScene } from "./scene";
@@ -48,7 +48,7 @@ const lobbyFootnote = element<HTMLElement>("lobby-footnote");
 const readyButton = element<HTMLButtonElement>("ready-button");
 const readyStatus = element<HTMLElement>("ready-status");
 const relicChoices = element<HTMLElement>("relic-choices");
-const engineBench = element<HTMLElement>("engine-bench");
+const tableBench = element<HTMLElement>("table-bench");
 const clearStamp = element<HTMLElement>("clear-stamp");
 const restartButton = element<HTMLButtonElement>("restart-button");
 const restartFootnote = element<HTMLElement>("restart-footnote");
@@ -91,7 +91,7 @@ const messageHand = element<HTMLElement>("message-hand");
 const messageChips = element<HTMLElement>("message-chips");
 const messageMult = element<HTMLElement>("message-mult");
 const messageTotal = element<HTMLElement>("message-total");
-const messageEngine = element<HTMLElement>("message-engine");
+const messageTable = element<HTMLElement>("message-table");
 const modeSelector = element<HTMLElement>("mode-selector");
 const modeCooperative = element<HTMLButtonElement>("mode-cooperative");
 const modeVersus = element<HTMLButtonElement>("mode-versus");
@@ -162,11 +162,11 @@ function currentPlayer() {
   return room?.players.find((player) => player.id === clientId);
 }
 
-function relicById(id: string): RelicDefinition | undefined {
-  return RELICS.find((relic) => relic.id === id);
+function relicById(id: string): TablePieceDefinition | undefined {
+  return TABLE_PIECES.find((piece) => piece.id === id);
 }
 
-function relicColor(relic: RelicDefinition): string {
+function relicColor(relic: TablePieceDefinition): string {
   return {
     copper: "#c28b49",
     red: "#c45541",
@@ -208,7 +208,7 @@ function reorderHand(cardId: string, toIndex: number, finished: boolean): void {
   }
 }
 
-function engineReadout(id: string, value: number): { label: string; progress: number } {
+function tableReadout(id: string, value: number): { label: string; progress: number } {
   if (id === "brass-knuckle") {
     return { label: `${value} calibration${value === 1 ? "" : "s"} · +${(2 + value * 0.5).toFixed(1)} mult`, progress: Math.min(1, value / 6) };
   }
@@ -446,8 +446,8 @@ function handleGameEvent(event: GameEvent): void {
 
   if (event.kind === "hand-played") {
     if (event.playerId === clientId) selected.clear();
-    const engineFired = event.score.enginePulses.some((pulse) => pulse.kind === "fire");
-    audio.play(event.score.total >= 450 || engineFired ? "big-score" : "score");
+    const tableFired = event.score.tablePulses.some((pulse) => pulse.kind === "fire");
+    audio.play(event.score.total >= 450 || tableFired ? "big-score" : "score");
     showScoreCallout(event);
     if (event.playerId !== clientId) {
       showToast(`${event.playerName} played ${event.score.handLabel} for ${format(event.score.total)}.`);
@@ -506,8 +506,8 @@ function handleGameEvent(event: GameEvent): void {
   if (event.kind === "relic-picked") {
     if (event.playerId === clientId) audio.play("relic");
     if (event.replacedRelicId && event.playerId === clientId) {
-      const removed = relicById(event.replacedRelicId)?.name || "Old part";
-      const installed = relicById(event.relicId)?.name || "New part";
+      const removed = relicById(event.replacedRelicId)?.name || "Old piece";
+      const installed = relicById(event.relicId)?.name || "New piece";
       showToast(`${removed} retired. ${installed} installed.`);
     }
   }
@@ -525,14 +525,14 @@ function showScoreCallout(event: Extract<GameEvent, { kind: "hand-played" }>): v
       ? format(event.score.finalMultiplier)
       : event.score.finalMultiplier.toFixed(2);
   messageTotal.textContent = format(event.score.total);
-  messageEngine.innerHTML = event.score.enginePulses
+  messageTable.innerHTML = event.score.tablePulses
     .slice(0, 3)
     .map(
       (pulse) =>
-        `<span class="engine-pulse is-${pulse.kind}"><b>${safe(pulse.label)}</b> ${safe(pulse.detail)}</span>`
+        `<span class="table-pulse is-${pulse.kind}"><b>${safe(pulse.label)}</b> ${safe(pulse.detail)}</span>`
     )
     .join("");
-  messageEngine.classList.toggle("is-hidden", event.score.enginePulses.length === 0);
+  messageTable.classList.toggle("is-hidden", event.score.tablePulses.length === 0);
   tableMessage.classList.add("is-showing");
   calloutTimer = window.setTimeout(() => tableMessage.classList.remove("is-showing"), 2400);
 }
@@ -542,6 +542,7 @@ function render(): void {
   scene.setMode(room.phase);
   scene.setHand(orderedHand(), selected);
   scene.setPlayers(room.players, clientId);
+  scene.setTablePieces(room.ownRelics, room.ownTableState);
   renderHud();
   renderLedger();
   renderRelics();
@@ -636,15 +637,15 @@ function renderLedger(): void {
 
 function renderRelics(): void {
   if (!room) return;
-  relicRack.innerHTML = Array.from({ length: MAX_ENGINE_SLOTS }, (_, index) => {
+  relicRack.innerHTML = Array.from({ length: MAX_TABLE_PIECES }, (_, index) => {
       const id = room!.ownRelics[index];
       if (!id) {
-        return `<div class="rack-relic is-empty" aria-label="Empty engine slot ${index + 1}"><span>0${index + 1}</span></div>`;
+        return `<div class="rack-relic is-empty" aria-label="Empty table space ${index + 1}"><span>0${index + 1}</span></div>`;
       }
       const relic = relicById(id);
       if (!relic) return "";
       const ink = relic.tone === "black" ? "#d7c79e" : "#18241f";
-      const state = engineReadout(id, room!.ownEngineState[id] ?? 0);
+      const state = tableReadout(id, room!.ownTableState[id] ?? 0);
       return `
         <div
           class="rack-relic"
@@ -753,21 +754,21 @@ function renderIntermission(): void {
           .join(" & ")} won round ${room.round}`
       : `Round ${room.round} cleared`;
   const chosen = room.relicChoices.find((id) => room!.ownRelics.includes(id));
-  const needsReplacement = room.ownRelics.length >= MAX_ENGINE_SLOTS && !self.pickedRelic;
+  const needsReplacement = room.ownRelics.length >= MAX_TABLE_PIECES && !self.pickedRelic;
   if (self.pickedRelic) replacementId = null;
-  engineBench.classList.toggle("is-hidden", room.ownRelics.length === 0);
-  engineBench.innerHTML = room.ownRelics.length
+  tableBench.classList.toggle("is-hidden", room.ownRelics.length === 0);
+  tableBench.innerHTML = room.ownRelics.length
     ? `
       <div class="bench-heading">
-        <span>Your engine · ${room.ownRelics.length}/${MAX_ENGINE_SLOTS} parts</span>
-        <b>${needsReplacement ? "Select one part to retire" : "Stored state carries forward"}</b>
+        <span>Your table · ${room.ownRelics.length}/${MAX_TABLE_PIECES} pieces</span>
+        <b>${needsReplacement ? "Select one piece to clear" : "Stored state carries forward"}</b>
       </div>
       <div class="bench-parts">
         ${room.ownRelics
           .map((id, index) => {
             const relic = relicById(id);
             if (!relic) return "";
-            const state = engineReadout(id, room!.ownEngineState[id] ?? 0);
+            const state = tableReadout(id, room!.ownTableState[id] ?? 0);
             return `
               <button
                 class="bench-part${replacementId === id ? " is-replacing" : ""}"
@@ -775,7 +776,7 @@ function renderIntermission(): void {
                 ${needsReplacement ? `data-replace="${id}"` : "disabled"}
                 style="--relic-tone:${relicColor(relic)}"
               >
-                <small>Slot 0${index + 1} · ${safe(relic.category)}</small>
+                <small>Space 0${index + 1} · ${safe(relic.category)}</small>
                 <strong>${safe(relic.name)}</strong>
                 <span>${safe(state.label)}</span>
               </button>
@@ -802,7 +803,7 @@ function renderIntermission(): void {
             <small>${safe(relic.category)} · ${safe(relic.short)}</small>
             <strong>${safe(relic.name)}</strong>
             <span>${safe(relic.description)}</span>
-            <em>${safe(relic.build)}</em>
+            <em>${safe(relic.tableEffect)}</em>
           </span>
         </button>
       `;
@@ -813,9 +814,9 @@ function renderIntermission(): void {
   if (!self.pickedRelic) {
     readyStatus.textContent = needsReplacement
       ? replacementId
-        ? "Outgoing slot selected. Choose its replacement."
-        : "The engine is full. Select a part above to retire."
-      : "Choose one part to install.";
+        ? "Outgoing piece selected. Choose what takes its place."
+        : "Every table space is occupied. Select one piece above to clear."
+      : "Choose one piece to set on the table.";
   } else if (self.ready) {
     readyStatus.textContent =
       readyPlayers === room.players.length
@@ -840,7 +841,7 @@ function renderGameOver(): void {
       .filter(Boolean)
       .join(" and ");
     gameoverTitle.textContent = `${winners || "The leader"} owns the table.`;
-    gameoverCopy.textContent = `The match closed in round ${room.round}. Every seat built from the same hand budget; the winning engine reached ${VERSUS_WINS_TO_MATCH} round wins first.`;
+    gameoverCopy.textContent = `The match closed in round ${room.round}. Every seat built from the same hand budget; the winning table reached ${VERSUS_WINS_TO_MATCH} round wins first.`;
     gameoverEyebrow.textContent = "The table has a winner.";
     failureSealTop.textContent = "Match";
     failureSealBottom.textContent = "Won";
@@ -849,7 +850,7 @@ function renderGameOver(): void {
     restartButton.textContent = "Play another match";
   } else {
     gameoverTitle.textContent = "The machine ran dry.";
-    gameoverCopy.textContent = `The table reached ${format(room.teamScore)} of ${format(room.target)} before the final hand. Your engine and room remain in the ledger.`;
+    gameoverCopy.textContent = `The table reached ${format(room.teamScore)} of ${format(room.target)} before the final hand. Your pieces and room remain in the ledger.`;
     gameoverEyebrow.textContent = "The house held.";
     failureSealTop.textContent = "Contract";
     failureSealBottom.textContent = "Closed";
@@ -880,15 +881,15 @@ function updateSelectionPreview(): void {
     previewScore.textContent = "Cards are scored when played";
   } else {
     const score = scoreHand(cards, {
-      relicIds: room.ownRelics,
-      engineState: room.ownEngineState,
+      pieceIds: room.ownRelics,
+      tableState: room.ownTableState,
       previousHand: room.lastHand,
       chain: room.chain,
       boss: room.boss,
       handsLeftBeforePlay: self?.handsLeft ?? 0
     });
     previewHand.textContent = score.handLabel;
-    const pulse = score.enginePulses.find((item) => item.kind === "fire") ?? score.enginePulses[0];
+    const pulse = score.tablePulses.find((item) => item.kind === "fire") ?? score.tablePulses[0];
     previewScore.textContent = `${format(score.finalChips)} chips × ${score.finalMultiplier.toFixed(score.finalMultiplier % 1 ? 2 : 0)} mult = ${format(score.total)}${pulse ? ` · ${pulse.label}: ${pulse.detail}` : ""}`;
   }
 
@@ -1039,8 +1040,8 @@ seatList.addEventListener("click", (event) => {
 relicChoices.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-relic]");
   if (!button?.dataset.relic || button.disabled) return;
-  if ((room?.ownRelics.length ?? 0) >= MAX_ENGINE_SLOTS && !replacementId) {
-    showToast("Select an installed part to retire first.", true);
+  if ((room?.ownRelics.length ?? 0) >= MAX_TABLE_PIECES && !replacementId) {
+    showToast("Select a table piece to clear first.", true);
     return;
   }
   send({
@@ -1050,7 +1051,7 @@ relicChoices.addEventListener("click", (event) => {
   });
 });
 
-engineBench.addEventListener("click", (event) => {
+tableBench.addEventListener("click", (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-replace]");
   if (!button?.dataset.replace || button.disabled) return;
   replacementId = button.dataset.replace;

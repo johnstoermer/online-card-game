@@ -2,6 +2,12 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import type { Card, GameEvent, PublicPlayer } from "../shared/types";
 import { labelForRank, symbolForSuit } from "../shared/game";
+import {
+  animateTablePieces,
+  applyTablePieceState,
+  createTablePiece,
+  feltColorForPieces
+} from "./table-pieces";
 
 interface CardObject {
   card: Card;
@@ -51,6 +57,10 @@ export class TableScene {
   private ambientBlocks: THREE.Mesh[] = [];
   private opponentGroup = new THREE.Group();
   private centerAssembly = new THREE.Group();
+  private tablePieces = new THREE.Group();
+  private tablePieceSignature = "";
+  private feltMaterial!: THREE.MeshStandardMaterial;
+  private feltTarget = new THREE.Color("#123b30");
   private clock = new THREE.Clock();
   private cameraShake = 0;
   private scorePulse = 0;
@@ -200,6 +210,28 @@ export class TableScene {
     });
   }
 
+  setTablePieces(pieceIds: string[], tableState: Record<string, number>): void {
+    const visibleIds = pieceIds.slice(0, 5);
+    const signature = visibleIds.join("|");
+    if (signature !== this.tablePieceSignature) {
+      while (this.tablePieces.children.length) {
+        const child = this.tablePieces.children.pop();
+        if (child) this.disposeObject(child);
+      }
+      visibleIds.forEach((pieceId, index) => {
+        this.tablePieces.add(createTablePiece(pieceId, index));
+      });
+      this.tablePieceSignature = signature;
+    }
+
+    for (const child of this.tablePieces.children) {
+      if (!(child instanceof THREE.Group)) continue;
+      const pieceId = String(child.userData.pieceId || "");
+      applyTablePieceState(child, tableState[pieceId] ?? 0);
+    }
+    this.feltTarget.set(feltColorForPieces(visibleIds));
+  }
+
   playEvent(event: GameEvent, ownId: string): void {
     if (event.kind === "hand-played") {
       const ownPlay = event.playerId === ownId;
@@ -215,15 +247,19 @@ export class TableScene {
       } else {
         this.spawnGhostHand(event.cards, event.playerId);
       }
-      const fires = event.score.enginePulses.filter((pulse) => pulse.kind === "fire").length;
-      const growth = event.score.enginePulses.filter((pulse) => pulse.kind === "grow").length;
+      const fires = event.score.tablePulses.filter((pulse) => pulse.kind === "fire").length;
+      const growth = event.score.tablePulses.filter((pulse) => pulse.kind === "grow").length;
       const power = Math.min(3.2, 0.65 + event.score.total / 500 + fires * 0.7 + growth * 0.2);
       setTimeout(() => this.burst(power, event.playerId === ownId ? "#e8b057" : "#7aa79a"), ownPlay ? 350 : 100);
-      event.score.enginePulses.slice(0, 3).forEach((pulse, index) => {
+      event.score.tablePulses.slice(0, 3).forEach((pulse, index) => {
         const color =
           pulse.kind === "fire" ? "#e45f45" : pulse.kind === "grow" ? "#d8a746" : "#66a696";
         const pulsePower = pulse.kind === "fire" ? 2.6 : pulse.kind === "grow" ? 1.45 : 0.85;
         setTimeout(() => this.burst(pulsePower, color), (ownPlay ? 430 : 170) + index * 125);
+        const tablePiece = this.tablePieces.children.find(
+          (piece) => piece.userData.pieceId === pulse.pieceId
+        );
+        if (tablePiece) tablePiece.userData.stateChangedAt = performance.now();
       });
       this.cameraShake = Math.max(this.cameraShake, power * (fires ? 0.115 : 0.08));
       this.scorePulse = fires ? 1.65 : growth ? 1.25 : 1;
@@ -325,7 +361,7 @@ export class TableScene {
       roughness: 0.62,
       metalness: 0.03
     });
-    const felt = new THREE.MeshStandardMaterial({
+    this.feltMaterial = new THREE.MeshStandardMaterial({
       color: "#123b30",
       roughness: 0.94,
       metalness: 0,
@@ -349,7 +385,10 @@ export class TableScene {
     edge.receiveShadow = true;
     this.table.add(edge);
 
-    const surface = new THREE.Mesh(new RoundedBoxGeometry(13.35, 7.9, 0.22, 5, 0.3), felt);
+    const surface = new THREE.Mesh(
+      new RoundedBoxGeometry(13.35, 7.9, 0.22, 5, 0.3),
+      this.feltMaterial
+    );
     surface.position.z = -0.03;
     surface.receiveShadow = true;
     this.table.add(surface);
@@ -379,6 +418,7 @@ export class TableScene {
 
     this.buildDeck();
     this.buildCenterAssembly(brass);
+    this.table.add(this.tablePieces);
   }
 
   private buildDeck(): void {
@@ -831,6 +871,8 @@ export class TableScene {
     this.centerAssembly.rotation.z += delta * (0.08 + this.scorePulse * 1.6);
     this.centerAssembly.position.z = 0.2 + Math.sin(time * 1.4) * 0.025 + this.scorePulse * 0.08;
     this.scorePulse = Math.max(0, this.scorePulse - delta * 1.4);
+    animateTablePieces(this.tablePieces, time, delta, this.reduceMotion);
+    this.feltMaterial.color.lerp(this.feltTarget, this.reduceMotion ? 1 : delta * 2.8);
 
     this.burstCubes = this.burstCubes.filter((cube) => {
       const age = now - cube.bornAt;
