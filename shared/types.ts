@@ -10,6 +10,8 @@ export interface Card {
 
 export type Team = 0 | 1;
 export type RoomPhase = "lobby" | "bidding" | "playing" | "hand-end" | "gameover";
+export type MatchType = "private" | "public";
+export type IdentitySource = "discord" | "local";
 
 export interface PublicPlayer {
   id: string;
@@ -43,6 +45,7 @@ export interface HistoryEntry {
 
 export interface RoomView {
   code: string;
+  matchType: MatchType;
   phase: RoomPhase;
   players: PublicPlayer[];
   hand: Card[];
@@ -81,8 +84,10 @@ export type GameEvent =
   | { kind: "player-joined" | "player-left"; eventNumber: number; playerId: string; playerName: string; seat: number };
 
 export type ClientMessage =
-  | { type: "create"; name: string; sessionId?: string }
-  | { type: "join"; code: string; name: string; sessionId?: string }
+  | { type: "create"; name: string; identityToken?: string }
+  | { type: "join"; code: string; name: string; sessionId?: string; identityToken?: string }
+  | { type: "queue-join"; name: string; queueSessionId?: string; identityToken?: string }
+  | { type: "queue-cancel" }
   | { type: "start" }
   | { type: "bid"; action: "pass" | "order-up" | "call"; suit?: Suit; alone?: boolean }
   | { type: "play-card"; cardId: string }
@@ -90,7 +95,9 @@ export type ClientMessage =
   | { type: "ping"; at: number };
 
 export type ServerMessage =
-  | { type: "welcome"; clientId: string; sessionId: string; roomCode: string; state: RoomView }
+  | { type: "welcome"; clientId: string; sessionId: string; roomCode: string; identitySource: IdentitySource; state: RoomView }
+  | { type: "queue-status"; status: "waiting"; playerCount: number; needed: number; queueSessionId: string; joinedAt: number; name: string; identitySource: IdentitySource }
+  | { type: "queue-cancelled" }
   | { type: "state"; state: RoomView }
   | { type: "event"; event: GameEvent }
   | { type: "error"; message: string; code?: string }

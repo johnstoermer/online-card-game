@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#081711" />
-    <meta name="description" content="Euchre Table is a polished four-player multiplayer euchre game with bots, room codes, and a tactile 3D table." />
+    <meta name="description" content="Play partnership euchre online with instant four-player matchmaking or private room codes on a tactile 3D table." />
     <meta property="og:title" content="Euchre Table" />
     <meta property="og:description" content="Call trump, take tricks, and race your partner to 10 around a tactile Midwestern card table." />
     <title>Euchre Table — Multiplayer Euchre</title>
@@ -31,22 +31,47 @@
           <div class="hero-copy">
             <p class="eyebrow">Four seats · Two teams · Ten points</p>
             <h1 id="game-title"><span>Call it.</span><strong>Take the trick.</strong></h1>
-            <p class="hero-lede">Classic North American euchre on a warm, tactile table. Bring friends with a room code or sit down now—three sharp table regulars are ready.</p>
+            <p class="hero-lede">Classic North American euchre on a warm, tactile table. Match with four live players now, or bring friends to a private room with table regulars on standby.</p>
             <div class="suit-line" aria-hidden="true"><span>♠</span><span>♥</span><span>♣</span><span>♦</span></div>
           </div>
           <div class="entry-console" id="entry-console">
             <div class="console-index">TABLE / 01</div>
-            <h2>Pull up a chair.</h2>
-            <label class="field-label" for="player-name">Your name</label>
-            <input class="paper-input" id="player-name" maxlength="18" autocomplete="nickname" placeholder="Card player" />
-            <button class="primary-button broad" id="create-button" type="button"><span>Create a table</span><kbd>↵</kbd></button>
-            <div class="console-divider"><span>or join a friend</span></div>
-            <div class="join-row">
-              <input class="paper-input room-input" id="room-code" maxlength="4" autocomplete="off" placeholder="CODE" aria-label="Four-letter room code" />
-              <button class="secondary-button" id="join-button" type="button">Take a seat</button>
+            <p class="identity-note" id="identity-note" role="status">Checking your player profile…</p>
+            <div class="compact-profile is-hidden" id="fallback-profile">
+              <label for="player-name"><span>Local profile</span><small>Discord identity unavailable</small></label>
+              <input class="paper-input" id="player-name" maxlength="24" autocomplete="nickname" placeholder="Card Player" />
+            </div>
+            <div id="entry-menu">
+              <h2>Choose your table.</h2>
+              <div class="entry-actions">
+                <button class="primary-button action-card" id="play-now-button" type="button">
+                  <span><b>Play Now</b><small>Public matchmaking · four live players</small></span><kbd>→</kbd>
+                </button>
+                <button class="secondary-button action-card" id="private-button" type="button">
+                  <span><b>Private Match</b><small>Room code · friends and optional bots</small></span><kbd>+</kbd>
+                </button>
+              </div>
+            </div>
+            <div class="private-entry is-hidden" id="private-entry">
+              <button class="back-button" id="private-back-button" type="button">← All tables</button>
+              <h2>Pull up a chair.</h2>
+              <button class="primary-button broad" id="create-button" type="button"><span>Create a table</span><kbd>↵</kbd></button>
+              <div class="console-divider"><span>or join a friend</span></div>
+              <div class="join-row">
+                <input class="paper-input room-input" id="room-code" maxlength="4" autocomplete="off" placeholder="CODE" aria-label="Four-letter room code" />
+                <button class="secondary-button" id="join-button" type="button">Take a seat</button>
+              </div>
+              <p class="console-note">Unoccupied seats are played by bots. Friends can replace them before the first deal.</p>
+            </div>
+            <div class="queue-entry is-hidden" id="queue-entry" aria-labelledby="queue-title">
+              <p class="eyebrow">Public matchmaking</p>
+              <h2 id="queue-title">Finding your table.</h2>
+              <div class="queue-count" aria-live="polite"><strong id="queue-player-count">1</strong><span>/ 4 players ready</span></div>
+              <div class="queue-seats" id="queue-seats" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+              <p class="queue-copy" id="queue-copy" role="status">Waiting for three more players…</p>
+              <button class="secondary-button broad cancel-button" id="cancel-queue-button" type="button">Cancel matchmaking</button>
             </div>
             <p class="entry-status" id="entry-status" role="status"></p>
-            <p class="console-note">Unoccupied seats are played by bots. Friends can replace them before the first deal.</p>
           </div>
         </section>
 

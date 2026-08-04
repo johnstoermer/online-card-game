@@ -18,10 +18,22 @@ const scene = new TableScene(canvas);
 const audio = new TableAudio();
 const homeScreen = el("home-screen");
 const gameScreen = el("game-screen");
+const entryMenu = el("entry-menu");
+const privateEntry = el("private-entry");
+const queueEntry = el("queue-entry");
+const fallbackProfile = el("fallback-profile");
+const identityNote = el("identity-note");
 const playerNameInput = el<HTMLInputElement>("player-name");
 const roomCodeInput = el<HTMLInputElement>("room-code");
+const playNowButton = el<HTMLButtonElement>("play-now-button");
+const privateButton = el<HTMLButtonElement>("private-button");
+const privateBackButton = el<HTMLButtonElement>("private-back-button");
 const createButton = el<HTMLButtonElement>("create-button");
 const joinButton = el<HTMLButtonElement>("join-button");
+const cancelQueueButton = el<HTMLButtonElement>("cancel-queue-button");
+const queuePlayerCount = el("queue-player-count");
+const queueSeats = el("queue-seats");
+const queueCopy = el("queue-copy");
 const entryStatus = el("entry-status");
 const modalLayer = el("modal-layer");
 const lobbyModal = el("lobby-modal");
@@ -72,19 +84,71 @@ let room: RoomView | null = null;
 let clientId = "";
 let sessionId = "";
 let roomCode = "";
-let playerName = localStorage.getItem("euchre-name") || "";
+let playerName = localStorage.getItem("euchre-name") || "Card Player";
+let identityToken = "";
+let identitySource: "discord" | "local" = "local";
+let identityReady = false;
+let queueSessionId = "";
+let inQueue = false;
+let activeIntent: ConnectionIntent | null = null;
 let reconnectAttempts = 0;
 let reconnectTimer: number | undefined;
 let heartbeatTimer: number | undefined;
 let manualClose = false;
 let connecting = false;
 let lastResult: Extract<GameEvent, { kind: "hand-scored" }> | null = null;
+let winningSeat: number | null = null;
+let endModalReady = true;
+let endModalTimer: number | undefined;
 const queryCode = new URLSearchParams(location.search).get("room")?.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4) || "";
+
+type ConnectionIntent = { type: "create" } | { type: "join"; code: string } | { type: "queue"; resume?: boolean };
 
 playerNameInput.value = playerName;
 roomCodeInput.value = queryCode;
 soundButton.setAttribute("aria-pressed", String(!audio.isMuted));
 soundButton.classList.toggle("is-muted", audio.isMuted);
+playNowButton.disabled = true;
+privateButton.disabled = true;
+
+async function loadIdentity(): Promise<void> {
+  if (location.hostname.endsWith("herm.cool")) {
+    try {
+      const response = await fetch("https://feedback.herm.cool/api/game-identity?game_id=card", {
+        credentials: "include", headers: { Accept: "application/json" }
+      });
+      const result = await response.json() as {
+        authenticated?: boolean;
+        identityToken?: string;
+        user?: { displayName?: string };
+      };
+      if (response.ok && result.authenticated && typeof result.identityToken === "string" && typeof result.user?.displayName === "string") {
+        identityToken = result.identityToken;
+        playerName = result.user.displayName;
+        identitySource = "discord";
+      }
+    } catch {
+      // A local profile remains available when the trusted identity service cannot be reached.
+    }
+  }
+  identityReady = true;
+  playerNameInput.value = playerName;
+  fallbackProfile.classList.toggle("is-hidden", identitySource === "discord");
+  identityNote.innerHTML = identitySource === "discord"
+    ? `Playing as <strong>${safe(playerName)}</strong> · Discord`
+    : "Using a local profile saved on this device.";
+  playNowButton.disabled = false;
+  privateButton.disabled = false;
+  if (queryCode) {
+    showPrivateEntry();
+    if (localStorage.getItem(sessionKey(queryCode))) connect({ type: "join", code: queryCode });
+  }
+  const storedQueue = localStorage.getItem("euchre-queue-session");
+  if (!queryCode && storedQueue) {
+    queueSessionId = storedQueue;
+    beginQueue(true);
+  }
+}
 
 function websocketUrl(): string {
   const configured = new URLSearchParams(location.search).get("ws");
@@ -113,24 +177,36 @@ function saveSession(): void {
   if (!roomCode || !sessionId) return;
   localStorage.setItem(sessionKey(roomCode), sessionId);
   localStorage.setItem("euchre-last-room", roomCode);
-  localStorage.setItem("euchre-name", playerName);
+  if (identitySource === "local") localStorage.setItem("euchre-name", playerName);
 }
 
 function setConnecting(value: boolean): void {
-  connecting = value; createButton.disabled = value; joinButton.disabled = value;
-  if (value) entryStatus.textContent = "Finding the table…";
+  connecting = value;
+  createButton.disabled = value;
+  joinButton.disabled = value;
+  playNowButton.disabled = value || !identityReady;
+  privateButton.disabled = value || !identityReady;
+  if (value && !inQueue) entryStatus.textContent = "Finding the table…";
 }
 
-function connect(intent: { type: "create" } | { type: "join"; code: string }, reconnect = false): void {
+function connect(intent: ConnectionIntent, reconnect = false): void {
   if (connecting || socket?.readyState === WebSocket.OPEN) return;
+  activeIntent = intent;
   setConnecting(true); manualClose = false;
   const ws = new WebSocket(websocketUrl()); socket = ws;
   ws.addEventListener("open", () => {
     setConnecting(false); reconnectAttempts = 0; connectionFlag.classList.add("is-hidden");
     const stored = intent.type === "join" ? localStorage.getItem(sessionKey(intent.code)) || undefined : undefined;
-    sendRaw(intent.type === "create"
-      ? { type: "create", name: playerName, sessionId: reconnect ? sessionId : undefined }
-      : { type: "join", code: intent.code, name: playerName, sessionId: reconnect ? sessionId : stored });
+    if (intent.type === "create") sendRaw({ type: "create", name: playerName, identityToken: identityToken || undefined });
+    else if (intent.type === "join") sendRaw({
+      type: "join", code: intent.code, name: playerName,
+      sessionId: reconnect ? sessionId : stored, identityToken: identityToken || undefined
+    });
+    else sendRaw({
+      type: "queue-join", name: playerName,
+      queueSessionId: reconnect || intent.resume ? queueSessionId || undefined : undefined,
+      identityToken: identityToken || undefined
+    });
     startHeartbeat();
   });
   ws.addEventListener("message", (event) => {
@@ -139,7 +215,7 @@ function connect(intent: { type: "create" } | { type: "join"; code: string }, re
   });
   ws.addEventListener("close", () => {
     stopHeartbeat(); setConnecting(false);
-    if (!manualClose && roomCode && room) scheduleReconnect();
+    if (!manualClose && (inQueue || (roomCode && room))) scheduleReconnect();
   });
   ws.addEventListener("error", () => {
     if (!room) entryStatus.textContent = "Could not reach the room server. Try again.";
@@ -149,36 +225,151 @@ function connect(intent: { type: "create" } | { type: "join"; code: string }, re
 function scheduleReconnect(): void {
   clearTimeout(reconnectTimer); connectionFlag.classList.remove("is-hidden");
   const delay = Math.min(1000 * 2 ** reconnectAttempts, 10000); reconnectAttempts += 1;
-  reconnectTimer = window.setTimeout(() => { socket = null; connect({ type: "join", code: roomCode }, true); }, delay);
+  reconnectTimer = window.setTimeout(() => {
+    socket = null;
+    connect(inQueue ? { type: "queue", resume: true } : { type: "join", code: roomCode }, true);
+  }, delay);
 }
 function startHeartbeat(): void { stopHeartbeat(); heartbeatTimer = window.setInterval(() => send({ type: "ping", at: Date.now() }), 20000); }
 function stopHeartbeat(): void { if (heartbeatTimer) clearInterval(heartbeatTimer); heartbeatTimer = undefined; }
 function sendRaw(message: ClientMessage): void { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }
 function send(message: ClientMessage): void { sendRaw(message); }
 
+function closeIdleConnection(reason: string): void {
+  manualClose = true;
+  stopHeartbeat();
+  socket?.close(1000, reason);
+  socket = null;
+  activeIntent = null;
+}
+
 function handleMessage(message: ServerMessage): void {
   if (message.type === "welcome") {
+    inQueue = false; queueSessionId = ""; localStorage.removeItem("euchre-queue-session");
     clientId = message.clientId; sessionId = message.sessionId; roomCode = message.roomCode; room = message.state;
     saveSession(); history.replaceState(null, "", `${location.pathname}?room=${roomCode}`); enterTable(); audio.play("join"); render(); return;
   }
-  if (message.type === "state") { room = message.state; render(); return; }
+  if (message.type === "queue-status") {
+    inQueue = true;
+    queueSessionId = message.queueSessionId;
+    localStorage.setItem("euchre-queue-session", queueSessionId);
+    playerName = message.name;
+    identitySource = message.identitySource;
+    showQueueEntry();
+    renderQueue(message.playerCount, message.needed);
+    return;
+  }
+  if (message.type === "queue-cancelled") {
+    finishQueueCancellation();
+    return;
+  }
+  if (message.type === "state") {
+    const finalTrickJustCompleted = (message.state.phase === "hand-end" || message.state.phase === "gameover")
+      && room?.phase === "playing"
+      && message.state.completedTricks.length > room.completedTricks.length;
+    room = message.state;
+    if (finalTrickJustCompleted) {
+      endModalReady = false;
+      clearTimeout(endModalTimer);
+      endModalTimer = window.setTimeout(() => {
+        endModalReady = true;
+        render();
+      }, matchMedia("(prefers-reduced-motion: reduce)").matches ? 560 : 1450);
+    }
+    render(); return;
+  }
   if (message.type === "event") { handleEvent(message.event); return; }
   if (message.type === "error") {
     showToast(message.message, true); entryStatus.textContent = message.message;
-    if (message.code === "ROOM_NOT_FOUND" || message.code === "ROOM_FULL" || message.code === "GAME_STARTED") { room = null; roomCode = ""; homeScreen.classList.remove("is-hidden"); gameScreen.classList.add("is-hidden"); }
+    if (message.code === "QUEUE_SESSION_EXPIRED" || message.code === "ALREADY_QUEUED" || message.code === "QUEUE_SESSION_MISMATCH") {
+      inQueue = false; queueSessionId = ""; localStorage.removeItem("euchre-queue-session");
+      closeIdleConnection("Matchmaking ended");
+      showEntryMenu();
+    }
+    if (message.code === "ROOM_NOT_FOUND" || message.code === "ROOM_FULL" || message.code === "GAME_STARTED") {
+      room = null; roomCode = ""; closeIdleConnection("Private table unavailable");
+      homeScreen.classList.remove("is-hidden"); gameScreen.classList.add("is-hidden");
+    }
   }
 }
 
 function handleEvent(event: GameEvent): void {
   if (event.kind === "hand-dealt") audio.play("deal");
   if (event.kind === "trump-called") { audio.play(event.alone ? "big-score" : "select"); showToast(`${event.playerName} calls ${titleSuit(event.trump)}${event.alone ? " alone" : ""}.`); }
-  if (event.kind === "card-played") audio.play("play");
-  if (event.kind === "trick-won") audio.play("score");
+  if (event.kind === "trick-won") {
+    winningSeat = event.winnerSeat;
+    renderSeats();
+    window.setTimeout(() => {
+      if (winningSeat === event.winnerSeat) { winningSeat = null; renderSeats(); }
+    }, 1250);
+  }
   if (event.kind === "hand-scored") { lastResult = event; audio.play(event.points >= 4 ? "big-score" : "score"); }
   if (event.kind === "match-won") audio.play("win");
 }
 
 function enterTable(): void { homeScreen.classList.add("is-hidden"); gameScreen.classList.remove("is-hidden"); }
+
+function showEntryMenu(): void {
+  identityNote.classList.remove("is-hidden");
+  fallbackProfile.classList.toggle("is-hidden", identitySource === "discord");
+  entryMenu.classList.remove("is-hidden");
+  privateEntry.classList.add("is-hidden");
+  queueEntry.classList.add("is-hidden");
+}
+
+function showPrivateEntry(): void {
+  identityNote.classList.remove("is-hidden");
+  fallbackProfile.classList.toggle("is-hidden", identitySource === "discord");
+  entryMenu.classList.add("is-hidden");
+  privateEntry.classList.remove("is-hidden");
+  queueEntry.classList.add("is-hidden");
+  entryStatus.textContent = queryCode ? `Table ${queryCode} is ready to join.` : "";
+}
+
+function showQueueEntry(): void {
+  identityNote.classList.add("is-hidden");
+  fallbackProfile.classList.add("is-hidden");
+  entryMenu.classList.add("is-hidden");
+  privateEntry.classList.add("is-hidden");
+  queueEntry.classList.remove("is-hidden");
+}
+
+function renderQueue(playerCount: number, needed: number): void {
+  queuePlayerCount.textContent = String(playerCount);
+  [...queueSeats.children].forEach((seat, index) => seat.classList.toggle("is-ready", index < playerCount));
+  queueCopy.textContent = needed > 0
+    ? `Waiting for ${needed} more ${needed === 1 ? "player" : "players"}. Your place is held if you briefly reconnect.`
+    : "Four players found. Dealing a fresh table…";
+}
+
+function useCurrentName(): string {
+  if (identitySource === "discord") return playerName;
+  playerName = playerNameInput.value.trim() || "Card Player";
+  playerNameInput.value = playerName;
+  localStorage.setItem("euchre-name", playerName);
+  return playerName;
+}
+
+function beginQueue(resume = false): void {
+  if (!identityReady || connecting) return;
+  useCurrentName();
+  inQueue = true;
+  entryStatus.textContent = "";
+  showQueueEntry();
+  renderQueue(resume ? 0 : 1, resume ? 4 : 3);
+  connect({ type: "queue", resume });
+}
+
+function finishQueueCancellation(): void {
+  inQueue = false;
+  queueSessionId = "";
+  localStorage.removeItem("euchre-queue-session");
+  clearTimeout(reconnectTimer);
+  closeIdleConnection("Matchmaking cancelled");
+  connectionFlag.classList.add("is-hidden");
+  entryStatus.textContent = "Matchmaking cancelled.";
+  showEntryMenu();
+}
 
 function render(): void {
   if (!room) return;
@@ -224,7 +415,7 @@ function renderSeats(): void {
     const relative = (player.seat - ownSeat + 4) % 4;
     const place = ["YOU", "LEFT", "PARTNER", "RIGHT"][relative];
     const badges = [player.seat === view.dealerSeat ? "DEALER" : "", player.seat === view.makerSeat ? (view.alone ? "LONER" : "MAKER") : "", player.seat === view.sittingOutSeat ? "SITTING OUT" : ""].filter(Boolean).join(" · ");
-    return `<div class="seat-row team-${player.team}${player.seat === view.turnSeat ? " is-turn" : ""}${player.seat === ownSeat ? " is-self" : ""}">
+    return `<div class="seat-row team-${player.team}${player.seat === view.turnSeat ? " is-turn" : ""}${player.seat === ownSeat ? " is-self" : ""}${player.seat === winningSeat ? " is-trick-winner" : ""}">
       <i style="--seat-color:${player.color}"></i><div><span>SEAT ${player.seat + 1} · ${place}</span><strong>${safe(player.name)}</strong><small>${player.isBot ? "TABLE REGULAR" : player.connected ? "CONNECTED" : "AUTOPILOT"}${badges ? ` · ${badges}` : ""}</small></div><b>${player.tricks}</b>
     </div>`;
   }).join("");
@@ -256,7 +447,7 @@ function renderActions(): void {
 
 function renderModals(): void {
   if (!room) return;
-  const showLobby = room.phase === "lobby", showResult = room.phase === "hand-end", showGameover = room.phase === "gameover";
+  const showLobby = room.phase === "lobby", showResult = room.phase === "hand-end" && endModalReady, showGameover = room.phase === "gameover" && endModalReady;
   modalLayer.classList.toggle("is-hidden", !showLobby && !showResult && !showGameover);
   lobbyModal.classList.toggle("is-hidden", !showLobby); resultModal.classList.toggle("is-hidden", !showResult); gameoverModal.classList.toggle("is-hidden", !showGameover);
   if (showLobby) renderLobby();
@@ -286,23 +477,30 @@ async function copyInvitation(): Promise<void> {
   catch { showToast(`Room code: ${roomCode}`); }
 }
 
-function validName(): string | null {
-  const value = playerNameInput.value.trim().replace(/[^\p{L}\p{N}\s.'_-]/gu, "").slice(0, 18);
-  if (!value) { entryStatus.textContent = "Write your name on the scorecard first."; playerNameInput.focus(); return null; }
-  playerName = value; localStorage.setItem("euchre-name", value); return value;
-}
-
-createButton.addEventListener("click", () => { if (validName()) connect({ type: "create" }); });
-joinButton.addEventListener("click", () => { if (!validName()) return; const code = roomCodeInput.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4); if (code.length !== 4) { entryStatus.textContent = "Enter the four-letter room code."; return; } connect({ type: "join", code }); });
+playNowButton.addEventListener("click", () => beginQueue());
+privateButton.addEventListener("click", showPrivateEntry);
+privateBackButton.addEventListener("click", () => {
+  history.replaceState(null, "", location.pathname);
+  entryStatus.textContent = "";
+  showEntryMenu();
+});
+createButton.addEventListener("click", () => { useCurrentName(); connect({ type: "create" }); });
+joinButton.addEventListener("click", () => { useCurrentName(); const code = roomCodeInput.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4); if (code.length !== 4) { entryStatus.textContent = "Enter the four-letter room code."; return; } connect({ type: "join", code }); });
+cancelQueueButton.addEventListener("click", () => {
+  if (socket?.readyState === WebSocket.OPEN) send({ type: "queue-cancel" });
+  else finishQueueCancellation();
+});
 roomCodeInput.addEventListener("input", () => { roomCodeInput.value = roomCodeInput.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4); });
 roomCodeInput.addEventListener("keydown", (event) => { if (event.key === "Enter") joinButton.click(); });
-playerNameInput.addEventListener("keydown", (event) => { if (event.key === "Enter" && !roomCodeInput.value) createButton.click(); });
+playerNameInput.addEventListener("change", useCurrentName);
+playerNameInput.addEventListener("keydown", (event) => { if (event.key === "Enter") useCurrentName(); });
 copyButton.addEventListener("click", copyInvitation); inGameCode.addEventListener("click", copyInvitation);
 startButton.addEventListener("click", () => send({ type: "start" })); restartButton.addEventListener("click", () => send({ type: "restart" }));
 orderButton.addEventListener("click", () => send({ type: "bid", action: "order-up", alone: aloneToggle.checked }));
 passButton.addEventListener("click", () => send({ type: "bid", action: "pass" }));
 suitActions.addEventListener("click", (event) => { const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-suit]"); if (button) send({ type: "bid", action: "call", suit: button.dataset.suit as Suit, alone: aloneToggle.checked }); });
 scene.setCardHandler((cardId) => { if (room?.legalCardIds.includes(cardId)) send({ type: "play-card", cardId }); });
+scene.setEffectHandler((effect) => audio.play(effect === "card-land" ? "play" : "score"));
 el("how-button").addEventListener("click", () => guideLayer.classList.remove("is-hidden"));
 el("guide-close").addEventListener("click", () => guideLayer.classList.add("is-hidden"));
 guideLayer.addEventListener("click", (event) => { if (event.target === guideLayer) guideLayer.classList.add("is-hidden"); });
@@ -314,4 +512,4 @@ addEventListener("keydown", (event) => {
   if (room?.phase === "bidding" && ownPlayer()?.seat === room.turnSeat && event.key.toLowerCase() === "p" && room.canPass) send({ type: "bid", action: "pass" });
 });
 
-if (queryCode) entryStatus.textContent = `Joining table ${queryCode}—enter your name.`;
+void loadIdentity();

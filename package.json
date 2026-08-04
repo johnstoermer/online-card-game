@@ -1,6 +1,6 @@
 {
   "name": "online-card-game",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": false,
   "type": "module",
   "description": "A polished multiplayer euchre game with a tactile voxel 3D table, room codes, reconnection, and smart bots.",
@@ -11,7 +11,7 @@
     "build:client": "tsc --noEmit && vite build",
     "build:server": "tsc -p server/tsconfig.json",
     "start": "node server-dist/server/index.js",
-    "test": "vitest run shared server --exclude server-dist/**",
+    "test": "vitest run shared server src --exclude server-dist/**",
     "qa": "node scripts/qa.mjs",
     "qa:protocol": "node scripts/protocol-qa.mjs"
   },

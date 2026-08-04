@@ -1,12 +1,34 @@
 import * as THREE from "three";
 import type { Card, RoomView, Suit } from "../shared/types";
 import { effectiveSuit, isLeftBower, isRightBower } from "../shared/game";
+import { collectionStart, lerpYaw, motionTiming, playedCardYaw, relativeSeat, TRICK_SLOT_XZ } from "./scene-layout";
 
 const SUIT_SYMBOL: Record<Suit, string> = { clubs: "♣", diamonds: "♦", hearts: "♥", spades: "♠" };
 const SUIT_COLOR: Record<Suit, string> = { clubs: "#17201d", diamonds: "#b74739", hearts: "#b74739", spades: "#17201d" };
 const SEAT_POSITIONS = [new THREE.Vector3(0, .12, 3.4), new THREE.Vector3(-5.1, .12, 0), new THREE.Vector3(0, .12, -3.4), new THREE.Vector3(5.1, .12, 0)];
 
 interface CardObject { group: THREE.Group; card: Card; target: THREE.Vector3; legal: boolean; }
+interface TrickCardObject {
+  group: THREE.Group;
+  card: Card;
+  seat: number;
+  relative: number;
+  origin: THREE.Vector3;
+  target: THREE.Vector3;
+  startedAt: number;
+  landed: boolean;
+  collecting: boolean;
+}
+
+interface TrickCollection {
+  ids: string[];
+  winnerId: string;
+  winnerRelative: number;
+  startedAt: number;
+  origins: Map<string, THREE.Vector3>;
+  finished: boolean;
+  effectPlayed?: boolean;
+}
 
 export class TableScene {
   private renderer: THREE.WebGLRenderer;
@@ -17,12 +39,19 @@ export class TableScene {
   private trickGroup = new THREE.Group();
   private seatGroup = new THREE.Group();
   private cards = new Map<string, CardObject>();
+  private trickCards = new Map<string, TrickCardObject>();
+  private collections: TrickCollection[] = [];
+  private upcard?: THREE.Group;
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2();
   private onCardClick?: (cardId: string) => void;
+  private onEffect?: (effect: "card-land" | "trick-collect") => void;
   private hoveredId: string | null = null;
   private reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
   private lastTime = 0;
+  private snapshotReady = false;
+  private lastHandNumber = 0;
+  private lastCompletedTricks = 0;
 
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -43,6 +72,7 @@ export class TableScene {
   }
 
   setCardHandler(handler: (cardId: string) => void): void { this.onCardClick = handler; }
+  setEffectHandler(handler: (effect: "card-land" | "trick-collect") => void): void { this.onEffect = handler; }
 
   setState(room: RoomView | null, ownSeat = 0): void {
     if (!room) return;
@@ -115,20 +145,90 @@ export class TableScene {
   }
 
   private setTrick(room: RoomView, ownSeat: number): void {
-    while (this.trickGroup.children.length) this.trickGroup.remove(this.trickGroup.children[0]);
+    const now = performance.now();
+    const newHand = this.lastHandNumber !== 0 && room.handNumber !== this.lastHandNumber;
+    const snapshot = !this.snapshotReady;
+    if (newHand || (room.completedTricks.length < this.lastCompletedTricks && room.handNumber === this.lastHandNumber)) {
+      this.clearTrickCards();
+    }
+
+    if (this.upcard) {
+      this.trickGroup.remove(this.upcard);
+      this.upcard = undefined;
+    }
     if (room.phase === "bidding" && room.upcard) {
       const upcard = this.createCard(room.upcard, room.bidRound === 1 ? room.upcard.suit : null);
       upcard.position.set(0, .64, 0);
-      upcard.rotation.set(0, 0, -.07);
+      upcard.rotation.set(0, -.07, 0);
       upcard.scale.setScalar(.82);
-      this.trickGroup.add(upcard);
+      this.upcard = upcard;
+      this.trickGroup.add(this.upcard);
     }
+
+    const completedAdvanced = !snapshot && !newHand && room.completedTricks.length === this.lastCompletedTricks + 1;
+    if (completedAdvanced) {
+      const completed = room.completedTricks.at(-1);
+      if (completed && completed.cards.every((play) => this.trickCards.has(play.card.id))) {
+        const ids = completed.cards.map((play) => play.card.id);
+        const winnerId = completed.cards.find((play) => play.seat === completed.winnerSeat)?.card.id || ids[0];
+        const latestDeal = Math.max(...ids.map((id) => this.trickCards.get(id)!.startedAt));
+        for (const id of ids) this.trickCards.get(id)!.collecting = true;
+        this.collections.push({
+          ids, winnerId, winnerRelative: relativeSeat(completed.winnerSeat, ownSeat),
+          startedAt: collectionStart(now, latestDeal, motionTiming(this.reduceMotion)),
+          origins: new Map(ids.map((id) => [id, this.trickCards.get(id)!.target.clone()])),
+          finished: false
+        });
+      }
+    } else if (!snapshot && !newHand && room.completedTricks.length > this.lastCompletedTricks + 1) {
+      this.clearTrickCards();
+    }
+
     for (const play of room.currentTrick) {
-      const card = this.createCard(play.card, room.trump);
-      const relative = (play.seat - ownSeat + 4) % 4;
-      const positions = [new THREE.Vector3(0, .62, 1.22), new THREE.Vector3(-1.28, .62, 0), new THREE.Vector3(0, .62, -1.22), new THREE.Vector3(1.28, .62, 0)];
-      card.position.copy(positions[relative]); card.rotation.set(0, 0, relative % 2 ? Math.PI / 2 : 0); card.scale.setScalar(.76); this.trickGroup.add(card);
+      if (this.trickCards.has(play.card.id)) continue;
+      const relative = relativeSeat(play.seat, ownSeat);
+      const [x, z] = TRICK_SLOT_XZ[relative];
+      const target = new THREE.Vector3(x, .62, z);
+      const origin = SEAT_POSITIONS[relative].clone().multiplyScalar(.72).setY(.88);
+      const group = this.createCard(play.card, room.trump);
+      group.scale.setScalar(.76);
+      group.rotation.set(snapshot ? 0 : .18, playedCardYaw(relative), snapshot ? 0 : (relative === 1 ? -.1 : relative === 3 ? .1 : .04));
+      group.position.copy(snapshot || this.reduceMotion ? target : origin);
+      if (this.reduceMotion && !snapshot) this.setCardOpacity(group, 0);
+      this.trickGroup.add(group);
+      this.trickCards.set(play.card.id, {
+        group, card: play.card, seat: play.seat, relative, origin, target,
+        startedAt: now, landed: snapshot, collecting: false
+      });
     }
+
+    const desired = new Set(room.currentTrick.map((play) => play.card.id));
+    const collecting = new Set(this.collections.flatMap((collection) => collection.ids));
+    for (const [id, object] of this.trickCards) {
+      if (!desired.has(id) && !collecting.has(id)) {
+        this.trickGroup.remove(object.group);
+        this.trickCards.delete(id);
+      }
+    }
+
+    this.snapshotReady = true;
+    this.lastHandNumber = room.handNumber;
+    this.lastCompletedTricks = room.completedTricks.length;
+    this.updateTrickDebugState();
+  }
+
+  private clearTrickCards(): void {
+    for (const object of this.trickCards.values()) this.trickGroup.remove(object.group);
+    this.trickCards.clear();
+    this.collections = [];
+    this.updateTrickDebugState();
+  }
+
+  private updateTrickDebugState(): void {
+    this.canvas.dataset.trickCards = JSON.stringify([...this.trickCards.entries()].map(([id, object]) => ({
+      id, seat: object.seat, relative: object.relative, yaw: playedCardYaw(object.relative),
+      faceUp: true, collecting: object.collecting
+    })));
   }
 
   private setSeats(room: RoomView, ownSeat: number): void {
@@ -150,7 +250,11 @@ export class TableScene {
     const group = new THREE.Group(); group.userData.cardId = card.id;
     const body = new THREE.Mesh(new THREE.BoxGeometry(1.18, .075, 1.7), new THREE.MeshStandardMaterial({ color: 0xe9dfc7, roughness: .6 }));
     body.castShadow = true; body.userData.cardId = card.id;
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(1.08, 1.6), new THREE.MeshStandardMaterial({ map: this.makeCardTexture(card, trump), roughness: .72 }));
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(1.08, 1.6), new THREE.MeshStandardMaterial({
+      map: this.makeCardTexture(card, trump), roughness: .72, side: THREE.FrontSide,
+      polygonOffset: true, polygonOffsetFactor: -1
+    }));
+    face.name = "card-face";
     face.rotation.x = -Math.PI / 2; face.position.y = .041; face.userData.cardId = card.id;
     group.add(body, face); return group;
   }
@@ -191,6 +295,117 @@ export class TableScene {
     this.renderer.setSize(width, height, false); this.camera.aspect = width / height; this.camera.updateProjectionMatrix();
   }
 
+  private setCardOpacity(group: THREE.Group, opacity: number): void {
+    group.traverse((child) => {
+      if (!(child instanceof THREE.Mesh)) return;
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      for (const material of materials) {
+        material.transparent = opacity < .999;
+        material.opacity = opacity;
+      }
+    });
+  }
+
+  private setCardHighlight(group: THREE.Group, amount: number): void {
+    const face = group.getObjectByName("card-face") as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial> | undefined;
+    if (!face) return;
+    face.material.emissive.setHex(0xc69a50);
+    face.material.emissiveIntensity = amount;
+  }
+
+  private animateTrickCards(time: number): void {
+    const timing = motionTiming(this.reduceMotion);
+    for (const object of this.trickCards.values()) {
+      if (object.landed) continue;
+      const progress = Math.min(1, Math.max(0, (time - object.startedAt) / timing.dealMs));
+      const eased = 1 - Math.pow(1 - progress, 3);
+      if (this.reduceMotion) {
+        object.group.position.copy(object.target);
+        this.setCardOpacity(object.group, eased);
+      } else {
+        object.group.position.lerpVectors(object.origin, object.target, eased);
+        const arc = Math.sin(Math.PI * progress) * .48;
+        const settle = progress > .72 ? Math.sin((progress - .72) / .28 * Math.PI * 2) * .055 * (1 - progress) / .28 : 0;
+        object.group.position.y += arc + settle;
+        object.group.rotation.x = .18 * (1 - eased);
+        object.group.rotation.y = playedCardYaw(object.relative) + Math.sin(Math.PI * progress) * (object.relative % 2 ? .08 : -.045);
+        object.group.rotation.z = (object.relative === 1 ? -.1 : object.relative === 3 ? .1 : .04) * (1 - eased);
+      }
+      if (progress >= 1) {
+        object.group.position.copy(object.target);
+        object.group.rotation.set(0, playedCardYaw(object.relative), 0);
+        object.landed = true;
+        this.setCardOpacity(object.group, 1);
+        this.onEffect?.("card-land");
+      }
+    }
+
+    for (const collection of this.collections) {
+      if (collection.finished || time < collection.startedAt) continue;
+      const holdEnd = collection.startedAt + timing.winnerHoldMs;
+      const stackEnd = holdEnd + timing.stackMs;
+      const sweepEnd = stackEnd + timing.sweepMs;
+      const winner = this.trickCards.get(collection.winnerId);
+      if (time < holdEnd) {
+        const pulse = .5 + .5 * Math.sin((time - collection.startedAt) / Math.max(1, timing.winnerHoldMs) * Math.PI);
+        if (winner) {
+          winner.group.scale.setScalar(.76 + pulse * .075);
+          winner.group.position.y = winner.target.y + pulse * .08;
+          this.setCardHighlight(winner.group, .18 + pulse * .42);
+        }
+        continue;
+      }
+
+      if (!collection.effectPlayed) {
+        collection.effectPlayed = true;
+        this.onEffect?.("trick-collect");
+      }
+      for (const [index, id] of collection.ids.entries()) {
+        const object = this.trickCards.get(id);
+        if (!object) continue;
+        this.setCardHighlight(object.group, id === collection.winnerId ? .3 : 0);
+        if (this.reduceMotion) {
+          const fadeProgress = Math.min(1, (time - holdEnd) / Math.max(1, timing.stackMs + timing.sweepMs));
+          object.group.position.copy(object.target);
+          object.group.scale.setScalar(.76);
+          this.setCardOpacity(object.group, 1 - fadeProgress);
+          continue;
+        }
+        const stackPosition = new THREE.Vector3((index - (collection.ids.length - 1) / 2) * .035, .65 + index * .018, 0);
+        if (time < stackEnd) {
+          const progress = Math.min(1, (time - holdEnd) / timing.stackMs);
+          const eased = 1 - Math.pow(1 - progress, 3);
+          object.group.position.lerpVectors(collection.origins.get(id) || object.target, stackPosition, eased);
+          object.group.position.y += Math.sin(Math.PI * progress) * .16;
+          object.group.rotation.x = 0;
+          object.group.rotation.z = 0;
+          object.group.rotation.y = lerpYaw(playedCardYaw(object.relative), playedCardYaw(collection.winnerRelative), eased);
+          object.group.scale.setScalar(.76);
+        } else {
+          const progress = Math.min(1, (time - stackEnd) / timing.sweepMs);
+          const eased = progress * progress * (3 - 2 * progress);
+          const destination = SEAT_POSITIONS[collection.winnerRelative].clone().multiplyScalar(.72).setY(.9 + index * .012);
+          object.group.position.lerpVectors(stackPosition, destination, eased);
+          object.group.position.y += Math.sin(Math.PI * progress) * .42;
+          object.group.rotation.y = playedCardYaw(collection.winnerRelative);
+          object.group.scale.setScalar(.76 - eased * .18);
+          if (progress > .62) this.setCardOpacity(object.group, 1 - (progress - .62) / .38);
+        }
+      }
+      if (time >= sweepEnd) {
+        collection.finished = true;
+        for (const id of collection.ids) {
+          const object = this.trickCards.get(id);
+          if (!object) continue;
+          this.trickGroup.remove(object.group);
+          this.trickCards.delete(id);
+        }
+        this.updateTrickDebugState();
+      }
+    }
+    this.collections = this.collections.filter((collection) => !collection.finished);
+  }
+
   private animate(time: number): void {
     const delta = Math.min((time - this.lastTime) / 1000 || 0, .05); this.lastTime = time;
     for (const object of this.cards.values()) {
@@ -198,6 +413,7 @@ export class TableScene {
       object.group.position.lerp(new THREE.Vector3(object.target.x, object.target.y + hover, object.target.z), this.reduceMotion ? 1 : 1 - Math.pow(.002, delta));
       object.group.scale.setScalar(object.legal ? 1 : .96);
     }
+    this.animateTrickCards(time);
     for (const child of this.scene.children) if (child.userData.float !== undefined) child.position.y += Math.sin(time * .0004 + child.userData.float) * .0008;
     this.table.rotation.z = Math.sin(time * .00013) * .0025;
     this.renderer.render(this.scene, this.camera);

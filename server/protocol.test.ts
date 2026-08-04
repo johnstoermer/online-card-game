@@ -1,9 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { createHmac } from "node:crypto";
 import WebSocket from "ws";
 import type { ClientMessage, RoomView, ServerMessage } from "../shared/types";
 
 const port = 18193;
+const identitySecret = "test-game-identity-key-longer-than-thirty-two-bytes";
 let server: ChildProcessWithoutNullStreams;
 
 class TestClient {
@@ -40,10 +42,25 @@ class TestClient {
 
 const isWelcome = (message: ServerMessage): message is Extract<ServerMessage, { type: "welcome" }> => message.type === "welcome";
 const isBiddingState = (message: ServerMessage): message is Extract<ServerMessage, { type: "state" }> => message.type === "state" && message.state.phase === "bidding";
+const isQueueStatus = (message: ServerMessage): message is Extract<ServerMessage, { type: "queue-status" }> => message.type === "queue-status";
+
+function identityToken(name: string, subject = "discord-player", expiresIn = 300): string {
+  const now = Math.floor(Date.now() / 1000);
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(JSON.stringify({
+    iss: "herm-feedback", aud: "online-card-game", kind: "game-identity",
+    sub: subject, name, iat: now, nbf: now - 5, exp: now + expiresIn
+  })).toString("base64url");
+  const signature = createHmac("sha256", identitySecret).update(`${header}.${payload}`).digest("base64url");
+  return `${header}.${payload}.${signature}`;
+}
 
 beforeAll(async () => {
   server = spawn(process.execPath, ["node_modules/tsx/dist/cli.mjs", "server/index.ts"], {
-    cwd: process.cwd(), env: { ...process.env, PORT: String(port) }, stdio: "pipe"
+    cwd: process.cwd(), env: {
+      ...process.env, PORT: String(port), HERM_IDENTITY_SIGNING_KEY: identitySecret,
+      QUEUE_DISCONNECT_GRACE_MS: "300"
+    }, stdio: "pipe"
   });
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("Test server did not start.")), 5000);
@@ -57,6 +74,94 @@ beforeAll(async () => {
 afterAll(() => { if (server && !server.killed) server.kill(); });
 
 describe("server-authoritative euchre protocol", () => {
+  it("atomically matches exactly four queued humans into a started partnership game", async () => {
+    const clients = [new TestClient(), new TestClient(), new TestClient(), new TestClient()];
+    await Promise.all(clients.map((client) => client.open()));
+    for (let index = 0; index < clients.length; index += 1) {
+      clients[index].send({ type: "queue-join", name: `Human ${index + 1}` });
+      if (index < 3) {
+        const status = await clients[index].waitFor(isQueueStatus);
+        expect(status.playerCount).toBe(index + 1);
+        expect(status.needed).toBe(3 - index);
+      }
+    }
+    const welcomes = await Promise.all(clients.map((client) => client.waitFor(isWelcome)));
+    expect(new Set(welcomes.map((welcome) => welcome.roomCode)).size).toBe(1);
+    expect(welcomes.map((welcome) => welcome.state.players.find((player) => player.id === welcome.clientId)?.seat).sort()).toEqual([0, 1, 2, 3]);
+    for (const welcome of welcomes) {
+      expect(welcome.state.matchType).toBe("public");
+      expect(welcome.state.phase).toBe("bidding");
+      expect(welcome.state.players).toHaveLength(4);
+      expect(welcome.state.players.every((player) => !player.isBot)).toBe(true);
+      expect(welcome.state.players.map((player) => player.team)).toEqual([0, 1, 0, 1]);
+    }
+    clients.forEach((client) => client.close());
+  });
+
+  it("cancels authoritatively and does not double-queue one connection", async () => {
+    const first = new TestClient(); const second = new TestClient();
+    await first.open(); await second.open();
+    first.send({ type: "queue-join", name: "Cancel Me" });
+    await first.waitFor(isQueueStatus);
+    first.send({ type: "queue-join", name: "Cancel Me Again" });
+    const duplicateStatus = await first.waitFor(isQueueStatus);
+    expect(duplicateStatus.playerCount).toBe(1);
+    second.send({ type: "queue-join", name: "Still Here" });
+    await second.waitFor((message): message is Extract<ServerMessage, { type: "queue-status" }> => message.type === "queue-status" && message.playerCount === 2);
+    first.send({ type: "queue-cancel" });
+    await first.waitFor((message): message is Extract<ServerMessage, { type: "queue-cancelled" }> => message.type === "queue-cancelled");
+    const remaining = await second.waitFor((message): message is Extract<ServerMessage, { type: "queue-status" }> => message.type === "queue-status" && message.playerCount === 1);
+    expect(remaining.needed).toBe(3);
+    second.send({ type: "queue-cancel" });
+    first.close(); second.close();
+  });
+
+  it("reconnects a queued session during grace and removes it after disconnect expiry", async () => {
+    const original = new TestClient(); await original.open();
+    original.send({ type: "queue-join", name: "Reconnect Me" });
+    const waiting = await original.waitFor(isQueueStatus);
+    original.close();
+
+    const resumed = new TestClient(); await resumed.open();
+    resumed.send({ type: "queue-join", name: "Reconnect Me", queueSessionId: waiting.queueSessionId });
+    const resumedStatus = await resumed.waitFor(isQueueStatus);
+    expect(resumedStatus.queueSessionId).toBe(waiting.queueSessionId);
+    expect(resumedStatus.playerCount).toBe(1);
+    resumed.close();
+    await new Promise((resolve) => setTimeout(resolve, 750));
+
+    const observer = new TestClient(); await observer.open();
+    observer.send({ type: "queue-join", name: "Observer" });
+    const observerStatus = await observer.waitFor(isQueueStatus);
+    expect(observerStatus.playerCount).toBe(1);
+    observer.send({ type: "queue-cancel" }); observer.close();
+  });
+
+  it("trusts signed Discord identity, rejects duplicate identity, and sanitizes local fallback names", async () => {
+    const trusted = new TestClient(); await trusted.open();
+    const token = identityToken("Discord <Ace>", "same-discord-user");
+    trusted.send({ type: "queue-join", name: "Browser Impostor", identityToken: token });
+    const trustedStatus = await trusted.waitFor(isQueueStatus);
+    expect(trustedStatus.name).toBe("Discord Ace");
+    expect(trustedStatus.identitySource).toBe("discord");
+
+    const duplicate = new TestClient(); await duplicate.open();
+    duplicate.send({ type: "queue-join", name: "Another Claim", identityToken: token });
+    const duplicateError = await duplicate.waitFor((message): message is Extract<ServerMessage, { type: "error" }> => message.type === "error");
+    expect(duplicateError.code).toBe("ALREADY_QUEUED");
+
+    const fallback = new TestClient(); await fallback.open();
+    fallback.send({ type: "create", name: "  Local <Player>   With A Very Very Long Name  ", identityToken: `${token}tampered` });
+    const fallbackWelcome = await fallback.waitFor(isWelcome);
+    const fallbackPlayer = fallbackWelcome.state.players.find((player) => player.id === fallbackWelcome.clientId)!;
+    expect(fallbackWelcome.identitySource).toBe("local");
+    expect(fallbackPlayer.name).toBe("Local Player With A Very");
+    expect(Array.from(fallbackPlayer.name)).toHaveLength(24);
+
+    trusted.send({ type: "queue-cancel" });
+    trusted.close(); duplicate.close(); fallback.close();
+  });
+
   it("creates four fixed seats, lets a human take a bot seat, starts, and reconnects in-seat", async () => {
     const host = new TestClient();
     await host.open();

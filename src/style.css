@@ -56,22 +56,49 @@ h1 strong { color: var(--brass); font-style: italic; font-weight: 610; }
 .entry-console::before, .table-modal::before, .guide-book::before { content: ""; position: absolute; inset: 9px; border: 1px solid #7f6b463d; pointer-events: none; }
 .console-index { color: #8f7549; font-size: 9px; letter-spacing: .27em; }
 .entry-console h2 { margin: 9px 0 24px; font-size: 34px; font-weight: 520; letter-spacing: -.03em; }
+.identity-note { min-height: 17px; margin: 10px 0 12px; color: #62563f; font-size: 9px; letter-spacing: .05em; }
+.identity-note strong { color: #2f5f51; }
+.compact-profile { display: grid; grid-template-columns: 1fr 150px; align-items: center; gap: 12px; margin: 0 0 18px; padding: 10px 0; border-block: 1px solid #806e4d40; }
+.compact-profile label { display: grid; gap: 2px; color: #68593e; font-size: 8px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.compact-profile label small { color: #827457; font-size: 7px; font-weight: 600; letter-spacing: .05em; text-transform: none; }
+.compact-profile .paper-input { height: 36px; padding-inline: 10px; font-size: 11px; }
 .field-label { display: block; margin-bottom: 7px; font-size: 9px; font-weight: 800; letter-spacing: .18em; text-transform: uppercase; color: #68593e; }
 .paper-input { width: 100%; height: 48px; border: 1px solid #79664388; border-radius: 0; padding: 0 14px; background: #f7efd9aa; color: var(--ink); outline: none; }
 .paper-input:focus { border-color: #a47735; box-shadow: 0 0 0 2px #b4883d35; }
 .primary-button, .secondary-button { min-height: 46px; border: 1px solid transparent; padding: 0 20px; cursor: pointer; text-transform: uppercase; letter-spacing: .12em; font-size: 10px; font-weight: 800; transition: transform .15s, filter .15s; }
 .primary-button { background: var(--ink); color: #f2e5c6; box-shadow: 0 7px 16px #2a231945; }
 .primary-button:hover:not(:disabled), .secondary-button:hover:not(:disabled) { filter: brightness(1.15); transform: translateY(-1px); }
-.primary-button:disabled { opacity: .45; cursor: wait; }
-.primary-button.broad { width: 100%; margin-top: 13px; display: flex; justify-content: space-between; align-items: center; }
+.primary-button:disabled, .secondary-button:disabled { opacity: .45; cursor: wait; }
+.primary-button.broad, .secondary-button.broad { width: 100%; margin-top: 13px; display: flex; justify-content: space-between; align-items: center; }
 .primary-button kbd { color: var(--brass); }
 .secondary-button { border-color: #786541; color: var(--ink); background: transparent; }
+.entry-actions { display: grid; gap: 10px; }
+.action-card { width: 100%; min-height: 68px; display: flex; align-items: center; justify-content: space-between; padding: 13px 16px; text-align: left; }
+.action-card > span { display: grid; gap: 4px; }
+.action-card b { font: 550 19px/1 "Fraunces Variable", serif; letter-spacing: -.01em; text-transform: none; }
+.action-card small { font-size: 7px; letter-spacing: .1em; opacity: .72; }
+.action-card kbd { font-size: 17px; color: var(--brass); }
+.secondary-button.action-card { background: #f7efd954; }
+.secondary-button.action-card kbd { color: #765d31; }
+.back-button { border: 0; padding: 3px 0; background: transparent; color: #76613d; cursor: pointer; font-size: 8px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.private-entry h2 { margin-top: 15px; }
 .console-divider { display: flex; align-items: center; gap: 12px; margin: 22px 0 12px; color: #7a6848; font-size: 8px; letter-spacing: .16em; text-transform: uppercase; }
 .console-divider::before, .console-divider::after { content: ""; height: 1px; flex: 1; background: #806e4d55; }
 .join-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .room-input { text-transform: uppercase; letter-spacing: .3em; font-weight: 800; }
 .entry-status { min-height: 18px; margin: 12px 0 0; color: #9b3b30; font-size: 11px; }
 .console-note { margin: 14px 0 0; color: #685d49; font-size: 10px; line-height: 1.5; }
+.queue-entry { text-align: center; }
+.queue-entry .eyebrow { margin-top: 6px; }
+.queue-entry h2 { margin-bottom: 17px; }
+.queue-count { display: flex; align-items: baseline; justify-content: center; gap: 7px; }
+.queue-count strong { color: #2e5c4d; font: 650 58px/.9 "Fraunces Variable", serif; }
+.queue-count span { color: #6e6048; font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.queue-seats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin: 20px 0 13px; }
+.queue-seats i { height: 6px; border: 1px solid #7c6845; background: transparent; transition: background .2s, box-shadow .2s; }
+.queue-seats i.is-ready { background: #2f6654; box-shadow: 0 0 12px #2f665466; }
+.queue-copy { min-height: 33px; margin: 0; color: #5f5544; font-size: 10px; line-height: 1.55; }
+.cancel-button { justify-content: center; }
 
 .game-screen { min-height: 100vh; }
 .scoreboard { position: fixed; z-index: 9; top: 86px; left: 50%; transform: translateX(-50%); width: min(520px, 44vw); display: grid; grid-template-columns: 1fr 86px 1fr; color: var(--ink); background: #e9ddc0; box-shadow: 0 13px 35px #0009; pointer-events: auto; }
@@ -104,6 +131,7 @@ h1 strong { color: var(--brass); font-style: italic; font-weight: 610; }
 .seat-row strong { overflow: hidden; text-overflow: ellipsis; font: 520 15px "Fraunces Variable", serif; }
 .seat-row > b { font: 600 20px "Fraunces Variable", serif; color: var(--brass); }
 .seat-row.is-turn { border-color: #d5aa5b; background: #193328e8; transform: translateX(6px); box-shadow: -4px 0 0 var(--brass), 0 10px 30px #0007; }
+.seat-row.is-trick-winner { border-color: #e7c16f; background: #173a2de8; box-shadow: 0 0 22px #d7a94d55, inset 0 0 18px #d7a94d24; }
 .seat-row.team-1 > i { opacity: .65; }
 
 .trick-counter { position: fixed; z-index: 8; right: 42px; top: 230px; text-align: center; }
@@ -192,6 +220,8 @@ h1 strong { color: var(--brass); font-style: italic; font-weight: 610; }
   .hero-lede { margin-top: 20px; line-height: 1.55; }
   .suit-line { margin-top: 15px; font-size: 27px; }
   .entry-console { padding: 28px 24px; }
+  .compact-profile { grid-template-columns: 1fr 135px; }
+  .action-card { min-height: 62px; }
   .game-screen { min-height: 100svh; }
   .scoreboard { top: 68px; width: calc(100vw - 20px); grid-template-columns: 1fr 64px 1fr; }
   .team-score { padding: 11px 13px; }

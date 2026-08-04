@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { createReadStream, existsSync, statSync } from "node:fs";
 import { extname, join, normalize, resolve } from "node:path";
 import { WebSocket, WebSocketServer } from "ws";
@@ -27,6 +28,7 @@ import type {
   CompletedTrick,
   GameEvent,
   HistoryEntry,
+  IdentitySource,
   PlayedCard,
   PublicPlayer,
   RoomPhase,
@@ -41,6 +43,9 @@ const DIST = resolve(process.cwd(), "dist");
 const ROOM_ALPHABET = "BCDFGHJKLMNPQRSTVWXYZ";
 const PLAYER_COLORS = ["#e5aa58", "#7fa998", "#d86b58", "#7f91bd"];
 const BOT_NAMES = ["Mabel", "Walt", "June", "Otis"];
+const QUEUE_SIZE = 4;
+const QUEUE_DISCONNECT_GRACE_MS = Math.max(250, Number(process.env.QUEUE_DISCONNECT_GRACE_MS || 15_000));
+const HERM_IDENTITY_SIGNING_KEY = process.env.HERM_IDENTITY_SIGNING_KEY || "";
 
 interface Player {
   id: string;
@@ -55,10 +60,13 @@ interface Player {
   tricks: number;
   ws?: WebSocket;
   disconnectedAt?: number;
+  identitySource: IdentitySource;
+  identitySubject?: string;
 }
 
 interface Room {
   code: string;
+  matchType: "private" | "public";
   phase: RoomPhase;
   players: Player[];
   handNumber: number;
@@ -84,11 +92,32 @@ interface Room {
   nextHandTimer?: NodeJS.Timeout;
 }
 
-interface ConnectionContext { player?: Player; room?: Room }
+interface QueueEntry {
+  id: string;
+  sessionId: string;
+  name: string;
+  identitySource: IdentitySource;
+  identitySubject?: string;
+  joinedAt: number;
+  connected: boolean;
+  ws?: WebSocket;
+  disconnectedAt?: number;
+}
+
+interface ResolvedIdentity {
+  name: string;
+  source: IdentitySource;
+  subject?: string;
+}
+
+interface ConnectionContext { player?: Player; room?: Room; queueEntry?: QueueEntry }
 type UnnumberedEvent<T> = T extends unknown ? Omit<T, "eventNumber"> : never;
 
 const rooms = new Map<string, Room>();
 const connections = new WeakMap<WebSocket, ConnectionContext>();
+const queue: QueueEntry[] = [];
+const queuedBySession = new Map<string, QueueEntry>();
+const queuedByIdentity = new Map<string, QueueEntry>();
 
 const mimeTypes: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8",
@@ -101,7 +130,7 @@ const httpServer = createServer((request, response) => {
   const requestUrl = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
   if (requestUrl.pathname === "/health") {
     response.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-    response.end(JSON.stringify({ ok: true, game: "euchre", rooms: rooms.size }));
+    response.end(JSON.stringify({ ok: true, game: "euchre", rooms: rooms.size, queuedPlayers: connectedQueueEntries().length }));
     return;
   }
   let relativePath = decodeURIComponent(requestUrl.pathname).replace(/^\/+/, "");
@@ -139,11 +168,53 @@ function makeRoomCode(): string {
 
 function cleanName(value: unknown): string {
   if (typeof value !== "string") return "Player";
-  return value.replace(/[^\p{L}\p{N}\s.'_-]/gu, "").trim().slice(0, 18) || "Player";
+  const normalized = value.normalize("NFKC")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069<>]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return Array.from(normalized).slice(0, 24).join("") || "Player";
 }
 
 function cleanCode(value: unknown): string {
   return typeof value === "string" ? value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4) : "";
+}
+
+function verifyIdentityToken(value: unknown): { name: string; subject: string } | null {
+  if (!HERM_IDENTITY_SIGNING_KEY || typeof value !== "string" || value.length > 4096) return null;
+  try {
+    const [headerPart, payloadPart, signaturePart, extra] = value.split(".");
+    if (!headerPart || !payloadPart || !signaturePart || extra) return null;
+    const header = JSON.parse(Buffer.from(headerPart, "base64url").toString("utf8")) as Record<string, unknown>;
+    if (header.alg !== "HS256" || header.typ !== "JWT") return null;
+    const expected = createHmac("sha256", HERM_IDENTITY_SIGNING_KEY)
+      .update(`${headerPart}.${payloadPart}`)
+      .digest();
+    const received = Buffer.from(signaturePart, "base64url");
+    if (received.length !== expected.length || !timingSafeEqual(received, expected)) return null;
+    const payload = JSON.parse(Buffer.from(payloadPart, "base64url").toString("utf8")) as Record<string, unknown>;
+    const now = Math.floor(Date.now() / 1000);
+    if (
+      payload.iss !== "herm-feedback"
+      || payload.aud !== "online-card-game"
+      || payload.kind !== "game-identity"
+      || typeof payload.sub !== "string"
+      || typeof payload.name !== "string"
+      || typeof payload.exp !== "number"
+      || !Number.isFinite(payload.exp)
+      || payload.exp <= now
+      || (typeof payload.nbf === "number" && Number.isFinite(payload.nbf) && payload.nbf > now + 30)
+    ) return null;
+    return { name: cleanName(payload.name), subject: payload.sub.slice(0, 128) };
+  } catch {
+    return null;
+  }
+}
+
+function resolveIdentity(name: unknown, identityToken: unknown): ResolvedIdentity {
+  const trusted = verifyIdentityToken(identityToken);
+  return trusted
+    ? { name: trusted.name, source: "discord", subject: trusted.subject }
+    : { name: cleanName(name), source: "local" };
 }
 
 function playerAt(room: Room, seat: number): Player {
@@ -152,26 +223,50 @@ function playerAt(room: Room, seat: number): Player {
   return player;
 }
 
-function createPlayer(name: string, seat: number, sessionId?: string, isBot = false): Player {
+function createPlayer(
+  name: string,
+  seat: number,
+  options: { sessionId?: string; isBot?: boolean; identitySource?: IdentitySource; identitySubject?: string } = {}
+): Player {
+  const isBot = Boolean(options.isBot);
   return {
-    id: randomId(isBot ? "bot" : "player"), sessionId: sessionId || randomId("session"),
-    name, seat, color: PLAYER_COLORS[seat], connected: true, host: false, isBot, hand: [], tricks: 0
+    id: randomId(isBot ? "bot" : "player"), sessionId: options.sessionId || randomId("session"),
+    name, seat, color: PLAYER_COLORS[seat], connected: true, host: false, isBot, hand: [], tricks: 0,
+    identitySource: options.identitySource || "local", identitySubject: options.identitySubject
   };
 }
 
-function createRoom(name: string, sessionId?: string): { room: Room; player: Player } {
-  const player = createPlayer(name, 0, sessionId);
+function createRoom(identity: ResolvedIdentity): { room: Room; player: Player } {
+  const player = createPlayer(identity.name, 0, { identitySource: identity.source, identitySubject: identity.subject });
   player.host = true;
   const room: Room = {
-    code: makeRoomCode(), phase: "lobby", players: [player], handNumber: 0, dealerSeat: 3,
+    code: makeRoomCode(), matchType: "private", phase: "lobby", players: [player], handNumber: 0, dealerSeat: 3,
     turnSeat: null, bidRound: null, upcard: null, turnedDownSuit: null, trump: null,
     makerSeat: null, alone: false, sittingOutSeat: null, leaderSeat: null,
     currentTrick: [], completedTricks: [], teamScores: [0, 0], teamTricks: [0, 0],
     winningTeam: null, history: [], eventNumber: 0, createdAt: Date.now()
   };
-  for (let seat = 1; seat < 4; seat += 1) room.players.push(createPlayer(BOT_NAMES[seat - 1], seat, undefined, true));
+  for (let seat = 1; seat < 4; seat += 1) room.players.push(createPlayer(BOT_NAMES[seat - 1], seat, { isBot: true }));
   rooms.set(room.code, room);
   return { room, player };
+}
+
+function createPublicRoom(entries: QueueEntry[]): Room {
+  const players = entries.map((entry, seat) => createPlayer(entry.name, seat, {
+    identitySource: entry.identitySource,
+    identitySubject: entry.identitySubject
+  }));
+  players[0].host = true;
+  const room: Room = {
+    code: makeRoomCode(), matchType: "public", phase: "lobby", players, handNumber: 0, dealerSeat: 3,
+    turnSeat: null, bidRound: null, upcard: null, turnedDownSuit: null, trump: null,
+    makerSeat: null, alone: false, sittingOutSeat: null, leaderSeat: null,
+    currentTrick: [], completedTricks: [], teamScores: [0, 0], teamTricks: [0, 0],
+    winningTeam: null, history: [], eventNumber: 0, createdAt: Date.now()
+  };
+  rooms.set(room.code, room);
+  resetMatch(room);
+  return room;
 }
 
 function publicPlayer(player: Player): PublicPlayer {
@@ -188,7 +283,7 @@ function roomView(room: Room, viewer: Player): RoomView {
   const callableSuits = room.phase === "bidding" && room.bidRound === 2
     ? SUITS.filter((suit) => suit !== room.turnedDownSuit) : [];
   return {
-    code: room.code, phase: room.phase, players: [...room.players].sort((a, b) => a.seat - b.seat).map(publicPlayer),
+    code: room.code, matchType: room.matchType, phase: room.phase, players: [...room.players].sort((a, b) => a.seat - b.seat).map(publicPlayer),
     hand: [...viewer.hand], handNumber: room.handNumber, dealerSeat: room.dealerSeat,
     turnSeat: room.turnSeat, bidRound: room.bidRound, upcard: room.upcard,
     turnedDownSuit: room.turnedDownSuit, trump: room.trump, makerSeat: room.makerSeat,
@@ -352,6 +447,9 @@ function playCard(room: Room, player: Player, cardId: string): void {
   history(room, `${player.name} plays ${rankLabel(card.rank)} of ${card.suit}.`, "trick");
   emit(room, { kind: "card-played", playerId: player.id, playerName: player.name, seat: player.seat, card });
   if (room.currentTrick.length === trickSize(room.sittingOutSeat)) {
+    // Publish the complete face-up trick before authoritative resolution clears it so clients can
+    // land the final card and animate collection without delaying the next legal action.
+    broadcastState(room);
     const winnerSeat = trickWinner(room.currentTrick, room.trump);
     const winner = playerAt(room, winnerSeat);
     winner.tricks += 1;
@@ -415,13 +513,108 @@ function attachPlayer(ws: WebSocket, room: Room, player: Player): void {
   player.disconnectedAt = undefined;
   connections.set(ws, { player, room });
   rebalanceHost(room);
-  send(ws, { type: "welcome", clientId: player.id, sessionId: player.sessionId, roomCode: room.code, state: roomView(room, player) });
+  send(ws, { type: "welcome", clientId: player.id, sessionId: player.sessionId, roomCode: room.code, identitySource: player.identitySource, state: roomView(room, player) });
   broadcastState(room);
   scheduleAction(room);
 }
 
+function connectedQueueEntries(): QueueEntry[] {
+  return queue.filter((entry) => entry.connected && entry.ws?.readyState === WebSocket.OPEN);
+}
+
+function sendQueueStatus(entry: QueueEntry, playerCount = connectedQueueEntries().length): void {
+  send(entry.ws, {
+    type: "queue-status", status: "waiting", playerCount, needed: Math.max(0, QUEUE_SIZE - playerCount),
+    queueSessionId: entry.sessionId, joinedAt: entry.joinedAt, name: entry.name, identitySource: entry.identitySource
+  });
+}
+
+function broadcastQueueStatus(): void {
+  const connected = connectedQueueEntries();
+  for (const entry of connected) sendQueueStatus(entry, connected.length);
+}
+
+function removeQueueEntry(entry: QueueEntry): void {
+  const index = queue.indexOf(entry);
+  if (index >= 0) queue.splice(index, 1);
+  if (queuedBySession.get(entry.sessionId) === entry) queuedBySession.delete(entry.sessionId);
+  if (entry.identitySubject && queuedByIdentity.get(entry.identitySubject) === entry) queuedByIdentity.delete(entry.identitySubject);
+  if (entry.ws && connections.get(entry.ws)?.queueEntry === entry) connections.set(entry.ws, {});
+  entry.ws = undefined;
+  entry.connected = false;
+}
+
+function attachQueueEntry(ws: WebSocket, entry: QueueEntry): void {
+  if (entry.ws && entry.ws !== ws) entry.ws.close(4001, "Queue resumed elsewhere");
+  entry.ws = ws;
+  entry.connected = true;
+  entry.disconnectedAt = undefined;
+  connections.set(ws, { queueEntry: entry });
+}
+
+function matchQueuedPlayers(): void {
+  while (connectedQueueEntries().length >= QUEUE_SIZE) {
+    const matched = connectedQueueEntries().slice(0, QUEUE_SIZE);
+    const sockets = matched.map((entry) => entry.ws!);
+    for (const entry of matched) removeQueueEntry(entry);
+    const room = createPublicRoom(matched);
+    room.players.forEach((player, index) => attachPlayer(sockets[index], room, player));
+  }
+  broadcastQueueStatus();
+}
+
+function handleQueueJoin(ws: WebSocket, message: Extract<ClientMessage, { type: "queue-join" }>): void {
+  const current = connections.get(ws)?.queueEntry;
+  if (current) return sendQueueStatus(current);
+  const identity = resolveIdentity(message.name, message.identityToken);
+  const resumed = typeof message.queueSessionId === "string" ? queuedBySession.get(message.queueSessionId) : undefined;
+  if (typeof message.queueSessionId === "string" && !resumed) {
+    return sendError(ws, "That matchmaking wait has expired. Choose Play Now to join again.", "QUEUE_SESSION_EXPIRED");
+  }
+  if (resumed) {
+    if (resumed.identitySubject && identity.subject && resumed.identitySubject !== identity.subject) {
+      return sendError(ws, "That queue session belongs to another player.", "QUEUE_SESSION_MISMATCH");
+    }
+    if (!resumed.identitySubject && identity.subject) {
+      const duplicate = queuedByIdentity.get(identity.subject);
+      if (duplicate && duplicate !== resumed) return sendError(ws, "You are already waiting in the public queue.", "ALREADY_QUEUED");
+      resumed.identitySubject = identity.subject;
+      resumed.identitySource = "discord";
+      resumed.name = identity.name;
+      queuedByIdentity.set(identity.subject, resumed);
+    } else if (resumed.identitySource === "local") {
+      resumed.name = identity.name;
+    }
+    attachQueueEntry(ws, resumed);
+    broadcastQueueStatus();
+    matchQueuedPlayers();
+    return;
+  }
+  if (identity.subject && queuedByIdentity.has(identity.subject)) {
+    return sendError(ws, "You are already waiting in the public queue.", "ALREADY_QUEUED");
+  }
+  const entry: QueueEntry = {
+    id: randomId("queued"), sessionId: randomId("queue"), name: identity.name,
+    identitySource: identity.source, identitySubject: identity.subject,
+    joinedAt: Date.now(), connected: true, ws
+  };
+  queue.push(entry);
+  queuedBySession.set(entry.sessionId, entry);
+  if (entry.identitySubject) queuedByIdentity.set(entry.identitySubject, entry);
+  connections.set(ws, { queueEntry: entry });
+  broadcastQueueStatus();
+  matchQueuedPlayers();
+}
+
+function handleQueueCancel(ws: WebSocket): void {
+  const entry = connections.get(ws)?.queueEntry;
+  if (entry) removeQueueEntry(entry);
+  send(ws, { type: "queue-cancelled" });
+  broadcastQueueStatus();
+}
+
 function handleCreate(ws: WebSocket, message: Extract<ClientMessage, { type: "create" }>): void {
-  const { room, player } = createRoom(cleanName(message.name), message.sessionId);
+  const { room, player } = createRoom(resolveIdentity(message.name, message.identityToken));
   attachPlayer(ws, room, player);
 }
 
@@ -431,7 +624,14 @@ function handleJoin(ws: WebSocket, message: Extract<ClientMessage, { type: "join
   if (message.sessionId) {
     const returning = room.players.find((player) => !player.isBot && player.sessionId === message.sessionId);
     if (returning) {
-      returning.name = cleanName(message.name) || returning.name;
+      const identity = resolveIdentity(message.name, message.identityToken);
+      if (!returning.identitySubject || !identity.subject || returning.identitySubject === identity.subject) {
+        returning.name = identity.name;
+        if (identity.subject) {
+          returning.identitySubject = identity.subject;
+          returning.identitySource = "discord";
+        }
+      }
       attachPlayer(ws, room, returning);
       return;
     }
@@ -439,7 +639,8 @@ function handleJoin(ws: WebSocket, message: Extract<ClientMessage, { type: "join
   if (room.phase !== "lobby") return sendError(ws, "That table has already started.", "GAME_STARTED");
   const bot = [...room.players].sort((a, b) => a.seat - b.seat).find((player) => player.isBot);
   if (!bot) return sendError(ws, "That table has four human players.", "ROOM_FULL");
-  const player = createPlayer(cleanName(message.name), bot.seat, message.sessionId);
+  const identity = resolveIdentity(message.name, message.identityToken);
+  const player = createPlayer(identity.name, bot.seat, { identitySource: identity.source, identitySubject: identity.subject });
   room.players = room.players.filter((candidate) => candidate.id !== bot.id).concat(player);
   attachPlayer(ws, room, player);
   history(room, `${player.name} takes seat ${player.seat + 1}.`);
@@ -472,15 +673,30 @@ wss.on("connection", (ws) => {
     if (!message || typeof message.type !== "string") return;
     if (message.type === "ping") return send(ws, { type: "pong", at: message.at });
     const context = connections.get(ws);
+    if (context?.queueEntry) {
+      if (message.type === "queue-cancel") return handleQueueCancel(ws);
+      if (message.type === "queue-join") return sendQueueStatus(context.queueEntry);
+      return sendError(ws, "Cancel matchmaking before opening a private table.", "IN_QUEUE");
+    }
     if (!context?.player) {
+      if (message.type === "queue-join") return handleQueueJoin(ws, message);
+      if (message.type === "queue-cancel") return handleQueueCancel(ws);
       if (message.type === "create") return handleCreate(ws, message);
       if (message.type === "join") return handleJoin(ws, message);
-      return sendError(ws, "Create or join a table first.");
+      return sendError(ws, "Join matchmaking or open a private table first.");
     }
     handleAction(ws, message);
   });
   ws.on("close", () => {
     const context = connections.get(ws);
+    if (context?.queueEntry && context.queueEntry.ws === ws) {
+      const entry = context.queueEntry;
+      entry.connected = false;
+      entry.ws = undefined;
+      entry.disconnectedAt = Date.now();
+      broadcastQueueStatus();
+      return;
+    }
     if (!context?.player || !context.room || context.player.ws !== ws) return;
     const { player, room } = context;
     player.connected = false;
@@ -497,6 +713,14 @@ wss.on("connection", (ws) => {
 
 setInterval(() => {
   const now = Date.now();
+  let queueChanged = false;
+  for (const entry of [...queue]) {
+    if (!entry.connected && entry.disconnectedAt && now - entry.disconnectedAt >= QUEUE_DISCONNECT_GRACE_MS) {
+      removeQueueEntry(entry);
+      queueChanged = true;
+    }
+  }
+  if (queueChanged) broadcastQueueStatus();
   for (const [code, room] of rooms) {
     const connectedHuman = room.players.some((player) => !player.isBot && player.connected);
     if (!connectedHuman && now - room.createdAt > 15 * 60 * 1000) {
@@ -504,6 +728,6 @@ setInterval(() => {
       rooms.delete(code);
     }
   }
-}, 30_000).unref();
+}, Math.min(1_000, QUEUE_DISCONNECT_GRACE_MS)).unref();
 
 httpServer.listen(PORT, "0.0.0.0", () => console.log(`Euchre Table listening on :${PORT}`));
