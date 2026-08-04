@@ -1,121 +1,85 @@
 import { describe, expect, it } from "vitest";
-import { evaluateHand, roundTarget, scoreHand } from "./game";
-import type { Card, Suit } from "./types";
+import {
+  bestTrump,
+  cardStrength,
+  chooseDealerDiscard,
+  createDeck,
+  effectiveSuit,
+  legalCards,
+  nextActiveSeat,
+  scoreHand,
+  teamForSeat,
+  trickWinner
+} from "./game";
+import type { Card, PlayedCard, Suit } from "./types";
 
-const cards = (ranks: number[], suit: Suit = "clubs"): Card[] =>
-  ranks.map((rank, index) => ({ id: `${suit}-${rank}-${index}`, suit, rank }));
+const card = (rank: number, suit: Suit, id = `${suit}-${rank}`): Card => ({ rank, suit, id });
 
-describe("poker evaluation", () => {
-  it("recognizes all major five-card hands", () => {
-    expect(evaluateHand(cards([10, 11, 12, 13, 14], "hearts"))).toBe("royal-flush");
-    expect(evaluateHand(cards([2, 3, 4, 5, 14], "spades"))).toBe("straight-flush");
-    expect(evaluateHand(cards([9, 9, 9, 9, 2]))).toBe("four-kind");
-    expect(evaluateHand([...cards([7, 7, 7]), ...cards([3, 3], "hearts")])).toBe("full-house");
-    expect(
-      evaluateHand([
-        { id: "1", rank: 2, suit: "clubs" },
-        { id: "2", rank: 5, suit: "clubs" },
-        { id: "3", rank: 8, suit: "clubs" },
-        { id: "4", rank: 10, suit: "clubs" },
-        { id: "5", rank: 13, suit: "clubs" }
-      ])
-    ).toBe("flush");
+describe("euchre deck and partnerships", () => {
+  it("builds exactly the 24 cards from nine through ace", () => {
+    const deck = createDeck();
+    expect(deck).toHaveLength(24);
+    expect(new Set(deck.map((item) => item.id))).toHaveLength(24);
+    expect([...new Set(deck.map((item) => item.rank))]).toEqual([9, 10, 11, 12, 13, 14]);
   });
 
-  it("scores table pieces and chain bonuses", () => {
-    const result = scoreHand(cards([8, 8]), {
-      pieceIds: ["brass-knuckle"],
-      previousHand: "high-card",
-      chain: 1,
-      boss: null,
-      handsLeftBeforePlay: 3
-    });
-    expect(result.hand).toBe("pair");
-    expect(result.bonusMultiplier).toBe(2);
-    expect(result.chain).toBe(2);
-    expect(result.total).toBeGreaterThan(80);
+  it("fixes partnerships across the table", () => {
+    expect([0, 1, 2, 3].map(teamForSeat)).toEqual([0, 1, 0, 1]);
+    expect(nextActiveSeat(0, 1)).toBe(2);
+  });
+});
+
+describe("bowers, following suit, and trick resolution", () => {
+  it("treats the left bower as trump and ranks it below the right", () => {
+    const right = card(11, "hearts", "right");
+    const left = card(11, "diamonds", "left");
+    expect(effectiveSuit(left, "hearts")).toBe("hearts");
+    expect(cardStrength(right, "hearts", "clubs")).toBeGreaterThan(cardStrength(left, "hearts", "clubs"));
+    expect(cardStrength(left, "hearts", "clubs")).toBeGreaterThan(cardStrength(card(14, "hearts"), "hearts", "clubs"));
   });
 
-  it("rings a charged Call Bell and carries its remainder state", () => {
-    const result = scoreHand(cards([2, 3, 4, 5, 6]), {
-      pieceIds: ["echo-coil"],
-      tableState: { "echo-coil": 2 },
-      previousHand: "pair",
-      chain: 1,
-      boss: null,
-      handsLeftBeforePlay: 2
-    });
-
-    expect(result.tableMultiplier).toBe(2);
-    expect(result.tableStateAfter["echo-coil"]).toBe(0);
-    expect(result.tablePulses).toContainEqual(
-      expect.objectContaining({ pieceId: "echo-coil", kind: "fire" })
-    );
+  it("requires the left bower when trump is led", () => {
+    const hand = [card(11, "diamonds", "left"), card(14, "diamonds", "diamond-ace"), card(9, "clubs")];
+    const trick: PlayedCard[] = [{ seat: 0, card: card(9, "hearts") }];
+    expect(legalCards(hand, trick, "hearts").map((item) => item.id)).toEqual(["left"]);
   });
 
-  it("grows feeder values only after their calibration threshold", () => {
-    const thresholdHand = scoreHand(cards([4, 9], "hearts"), {
-      pieceIds: ["red-lens"],
-      tableState: { "red-lens": 9 },
-      previousHand: null,
-      chain: 0,
-      boss: null,
-      handsLeftBeforePlay: 3
-    });
-    const calibratedHand = scoreHand(cards([7], "hearts"), {
-      pieceIds: ["red-lens"],
-      tableState: thresholdHand.tableStateAfter,
-      previousHand: thresholdHand.hand,
-      chain: thresholdHand.chain,
-      boss: null,
-      handsLeftBeforePlay: 2
-    });
-
-    expect(thresholdHand.bonusChips).toBe(16);
-    expect(thresholdHand.tableStateAfter["red-lens"]).toBe(11);
-    expect(thresholdHand.tablePulses[0]).toMatchObject({ kind: "grow" });
-    expect(calibratedHand.bonusChips).toBe(10);
+  it("does not let the left bower follow its printed suit", () => {
+    const hand = [card(11, "diamonds", "left"), card(9, "clubs")];
+    const trick: PlayedCard[] = [{ seat: 0, card: card(14, "diamonds") }];
+    expect(legalCards(hand, trick, "hearts")).toEqual(hand);
   });
 
-  it("banks permanent multiplier from spades across later hands", () => {
-    const banked = scoreHand(cards([10], "spades"), {
-      pieceIds: ["black-key"],
-      tableState: { "black-key": 4 },
-      previousHand: null,
-      chain: 0,
-      boss: null,
-      handsLeftBeforePlay: 3
-    });
-    const later = scoreHand(cards([2, 6], "clubs"), {
-      pieceIds: ["black-key"],
-      tableState: banked.tableStateAfter,
-      previousHand: banked.hand,
-      chain: banked.chain,
-      boss: null,
-      handsLeftBeforePlay: 2
-    });
+  it("awards trump over led suit and led suit over off-suit", () => {
+    const trick: PlayedCard[] = [
+      { seat: 0, card: card(14, "clubs") },
+      { seat: 1, card: card(9, "hearts") },
+      { seat: 2, card: card(13, "clubs") },
+      { seat: 3, card: card(14, "spades") }
+    ];
+    expect(trickWinner(trick, "hearts")).toBe(1);
+  });
+});
 
-    expect(banked.bonusMultiplier).toBe(1);
-    expect(banked.tableStateAfter["black-key"]).toBe(5);
-    expect(later.bonusMultiplier).toBe(1);
+describe("calling support and scoring", () => {
+  it("excludes the turned-down suit when choosing best second-round trump", () => {
+    const hand = [card(11, "hearts"), card(14, "hearts"), card(11, "diamonds"), card(9, "clubs"), card(10, "clubs")];
+    expect(bestTrump(hand, "hearts").suit).not.toBe("hearts");
   });
 
-  it("resolves every full Ace Guard charge in one hand", () => {
-    const result = scoreHand(cards([14, 14, 14, 14]), {
-      pieceIds: ["ace-bearing"],
-      tableState: { "ace-bearing": 2 },
-      previousHand: null,
-      chain: 0,
-      boss: null,
-      handsLeftBeforePlay: 1
-    });
-
-    expect(result.tableMultiplier).toBeCloseTo(5.0625);
-    expect(result.tableStateAfter["ace-bearing"]).toBe(0);
+  it("discards a weak off-suit card after dealer pickup", () => {
+    const hand = [card(11, "hearts"), card(11, "diamonds"), card(14, "hearts"), card(9, "clubs"), card(10, "spades"), card(13, "hearts")];
+    expect(chooseDealerDiscard(hand, "hearts").id).toBe("clubs-9");
   });
 
-  it("scales targets by round and seats", () => {
-    expect(roundTarget(2, 1)).toBeGreaterThan(roundTarget(1, 1));
-    expect(roundTarget(1, 4)).toBeGreaterThan(roundTarget(1, 1));
+  it("scores makers, marches, euchres, and lone marches", () => {
+    expect(scoreHand(0, [3, 2], false)).toMatchObject({ scoringTeam: 0, points: 1, euchred: false });
+    expect(scoreHand(1, [0, 5], false)).toMatchObject({ scoringTeam: 1, points: 2, march: true });
+    expect(scoreHand(0, [2, 3], false)).toMatchObject({ scoringTeam: 1, points: 2, euchred: true });
+    expect(scoreHand(2, [5, 0], true)).toMatchObject({ scoringTeam: 0, points: 4, march: true });
+  });
+
+  it("gives a loner one point for three or four tricks", () => {
+    expect(scoreHand(3, [1, 4], true).points).toBe(1);
   });
 });

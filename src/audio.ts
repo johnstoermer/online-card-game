@@ -2,14 +2,12 @@ type SoundName =
   | "hover"
   | "select"
   | "deal"
-  | "discard"
   | "play"
   | "score"
   | "big-score"
   | "win"
   | "lose"
-  | "join"
-  | "relic";
+  | "join";
 
 export class TableAudio {
   private context?: AudioContext;
@@ -50,10 +48,6 @@ export class TableAudio {
         this.noise(0.035, 0.09, now, 1800);
         this.tone(120, 0.045, "triangle", 0.05, now);
       }
-      if (name === "discard") {
-        this.noise(0.08, 0.12, now, 900);
-        this.slide(190, 90, 0.14, "sawtooth", 0.055, now);
-      }
       if (name === "play") {
         this.noise(0.05, 0.16, now, 1500);
         this.slide(120, 260, 0.16, "triangle", 0.1, now);
@@ -81,11 +75,6 @@ export class TableAudio {
       if (name === "join") {
         this.tone(300, 0.12, "sine", 0.06, now);
         this.tone(450, 0.16, "triangle", 0.05, now + 0.08);
-      }
-      if (name === "relic") {
-        this.tone(174.61, 0.3, "triangle", 0.07, now);
-        this.tone(261.63, 0.4, "triangle", 0.065, now + 0.06);
-        this.tone(349.23, 0.5, "sine", 0.055, now + 0.12);
       }
     });
   }

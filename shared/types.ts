@@ -1,5 +1,6 @@
 export const SUITS = ["clubs", "diamonds", "hearts", "spades"] as const;
 export type Suit = (typeof SUITS)[number];
+export const RANKS = [9, 10, 11, 12, 13, 14] as const;
 
 export interface Card {
   id: string;
@@ -7,187 +8,89 @@ export interface Card {
   rank: number;
 }
 
-export type HandKey =
-  | "high-card"
-  | "pair"
-  | "two-pair"
-  | "three-kind"
-  | "straight"
-  | "flush"
-  | "full-house"
-  | "four-kind"
-  | "straight-flush"
-  | "royal-flush";
-
-export type RoomPhase = "lobby" | "playing" | "intermission" | "gameover";
-export type GameMode = "cooperative" | "versus";
-
-export interface TablePieceDefinition {
-  id: string;
-  name: string;
-  description: string;
-  short: string;
-  tone: "copper" | "red" | "ivory" | "black" | "green" | "blue";
-  category: "counter" | "marker" | "ritual" | "payout";
-  tableEffect: string;
-}
-
-export interface BossDefinition {
-  id: string;
-  name: string;
-  rule: string;
-}
+export type Team = 0 | 1;
+export type RoomPhase = "lobby" | "bidding" | "playing" | "hand-end" | "gameover";
 
 export interface PublicPlayer {
   id: string;
   name: string;
+  seat: number;
+  team: Team;
   color: string;
   connected: boolean;
   host: boolean;
   isBot: boolean;
   handCount: number;
-  handsLeft: number;
-  discardsLeft: number;
-  roundScore: number;
-  totalScore: number;
-  roundWins: number;
-  relics: string[];
-  pickedRelic: boolean;
-  ready: boolean;
+  tricks: number;
+}
+
+export interface PlayedCard {
+  seat: number;
+  card: Card;
+}
+
+export interface CompletedTrick {
+  leaderSeat: number;
+  winnerSeat: number;
+  cards: PlayedCard[];
+}
+
+export interface HistoryEntry {
+  id: number;
+  text: string;
+  tone: "neutral" | "bid" | "trick" | "score";
 }
 
 export interface RoomView {
   code: string;
   phase: RoomPhase;
-  mode: GameMode;
-  round: number;
-  target: number;
-  teamScore: number;
-  chain: number;
-  lastHand: HandKey | null;
-  boss: BossDefinition | null;
   players: PublicPlayer[];
   hand: Card[];
-  deckRemaining: number;
-  relicChoices: string[];
-  ownRelics: string[];
-  ownTableState: Record<string, number>;
-  roundWinnerIds: string[];
-  matchWinnerIds: string[];
+  handNumber: number;
+  dealerSeat: number;
+  turnSeat: number | null;
+  bidRound: 1 | 2 | null;
+  upcard: Card | null;
+  turnedDownSuit: Suit | null;
+  trump: Suit | null;
+  makerSeat: number | null;
+  alone: boolean;
+  sittingOutSeat: number | null;
+  leaderSeat: number | null;
+  currentTrick: PlayedCard[];
+  completedTricks: CompletedTrick[];
+  teamScores: [number, number];
+  teamTricks: [number, number];
+  winningTeam: Team | null;
+  legalCardIds: string[];
+  canPass: boolean;
+  callableSuits: Suit[];
+  history: HistoryEntry[];
   eventNumber: number;
   createdAt: number;
 }
 
-export interface ScoreBreakdown {
-  hand: HandKey;
-  handLabel: string;
-  baseChips: number;
-  cardChips: number;
-  bonusChips: number;
-  baseMultiplier: number;
-  bonusMultiplier: number;
-  chainMultiplier: number;
-  bossMultiplier: number;
-  tableMultiplier: number;
-  finalChips: number;
-  finalMultiplier: number;
-  total: number;
-  chain: number;
-  notes: string[];
-  tableStateAfter: Record<string, number>;
-  tablePulses: TablePulse[];
-}
-
-export interface TablePulse {
-  pieceId: string;
-  label: string;
-  detail: string;
-  kind: "charge" | "grow" | "fire";
-}
-
 export type GameEvent =
-  | {
-      kind: "hand-played";
-      eventNumber: number;
-      playerId: string;
-      playerName: string;
-      cards: Card[];
-      score: ScoreBreakdown;
-    }
-  | {
-      kind: "cards-discarded";
-      eventNumber: number;
-      playerId: string;
-      playerName: string;
-      cards: Card[];
-    }
-  | {
-      kind: "round-won";
-      eventNumber: number;
-      round: number;
-      score: number;
-      target: number;
-      mode: GameMode;
-      winnerIds: string[];
-    }
-  | {
-      kind: "round-lost";
-      eventNumber: number;
-      round: number;
-      score: number;
-      target: number;
-    }
-  | {
-      kind: "round-started";
-      eventNumber: number;
-      round: number;
-      target: number;
-      boss: BossDefinition | null;
-    }
-  | {
-      kind: "match-won";
-      eventNumber: number;
-      winnerIds: string[];
-      winnerNames: string[];
-      round: number;
-    }
-  | {
-      kind: "player-joined" | "player-left";
-      eventNumber: number;
-      playerId: string;
-      playerName: string;
-    }
-  | {
-      kind: "relic-picked";
-      eventNumber: number;
-      playerId: string;
-      playerName: string;
-      relicId: string;
-      replacedRelicId?: string;
-    };
+  | { kind: "hand-dealt"; eventNumber: number; handNumber: number; dealerSeat: number; upcard: Card }
+  | { kind: "player-passed"; eventNumber: number; playerId: string; playerName: string; round: 1 | 2 }
+  | { kind: "trump-called"; eventNumber: number; playerId: string; playerName: string; trump: Suit; alone: boolean; orderedUp: boolean }
+  | { kind: "card-played"; eventNumber: number; playerId: string; playerName: string; seat: number; card: Card }
+  | { kind: "trick-won"; eventNumber: number; winnerSeat: number; winnerName: string; team: Team; trickNumber: number }
+  | { kind: "hand-scored"; eventNumber: number; scoringTeam: Team; points: number; makersTeam: Team; makerTricks: number; euchred: boolean; march: boolean; alone: boolean }
+  | { kind: "match-won"; eventNumber: number; team: Team }
+  | { kind: "player-joined" | "player-left"; eventNumber: number; playerId: string; playerName: string; seat: number };
 
 export type ClientMessage =
   | { type: "create"; name: string; sessionId?: string }
   | { type: "join"; code: string; name: string; sessionId?: string }
   | { type: "start" }
-  | { type: "set-mode"; mode: GameMode }
-  | { type: "play"; cardIds: string[] }
-  | { type: "discard"; cardIds: string[] }
-  | { type: "pick-relic"; relicId: string; replaceId?: string }
-  | { type: "ready" }
-  | { type: "add-bot" }
-  | { type: "remove-bot"; playerId: string }
+  | { type: "bid"; action: "pass" | "order-up" | "call"; suit?: Suit; alone?: boolean }
+  | { type: "play-card"; cardId: string }
   | { type: "restart" }
   | { type: "ping"; at: number };
 
 export type ServerMessage =
-  | {
-      type: "welcome";
-      clientId: string;
-      sessionId: string;
-      roomCode: string;
-      state: RoomView;
-    }
+  | { type: "welcome"; clientId: string; sessionId: string; roomCode: string; state: RoomView }
   | { type: "state"; state: RoomView }
   | { type: "event"; event: GameEvent }
   | { type: "error"; message: string; code?: string }

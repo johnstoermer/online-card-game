@@ -1,1111 +1,317 @@
+import "@fontsource-variable/fraunces";
+import "@fontsource-variable/manrope";
 import "./style.css";
-import {
-  HANDS,
-  MAX_TABLE_PIECES,
-  scoreHand,
-  TABLE_PIECES,
-  VERSUS_WINS_TO_MATCH
-} from "../shared/game";
-import { moveCard, sortHand, type HandSortMode } from "../shared/sort";
-import type {
-  ClientMessage,
-  GameEvent,
-  RoomView,
-  ServerMessage,
-  TablePieceDefinition
-} from "../shared/types";
 import { TableAudio } from "./audio";
 import { TableScene } from "./scene";
+import { effectiveSuit, isLeftBower } from "../shared/game";
+import { SUITS } from "../shared/types";
+import type { ClientMessage, GameEvent, RoomView, ServerMessage, Suit } from "../shared/types";
 
-const element = <T extends HTMLElement>(id: string): T => {
+const el = <T extends HTMLElement>(id: string): T => {
   const found = document.getElementById(id);
-  if (!found) throw new Error(`Missing interface element: ${id}`);
+  if (!found) throw new Error(`Missing #${id}`);
   return found as T;
 };
 
-const canvas = element<HTMLCanvasElement>("table-canvas");
-const homeScreen = element<HTMLElement>("home-screen");
-const gameScreen = element<HTMLElement>("game-screen");
-const playerNameInput = element<HTMLInputElement>("player-name");
-const roomCodeInput = element<HTMLInputElement>("room-code");
-const createButton = element<HTMLButtonElement>("create-button");
-const joinButton = element<HTMLButtonElement>("join-button");
-const entryStatus = element<HTMLElement>("entry-status");
-const howButton = element<HTMLButtonElement>("how-button");
-const soundButton = element<HTMLButtonElement>("sound-button");
-const guideLayer = element<HTMLElement>("guide-layer");
-const guideClose = element<HTMLButtonElement>("guide-close");
-const modalLayer = element<HTMLElement>("modal-layer");
-const lobbyModal = element<HTMLElement>("lobby-modal");
-const relicModal = element<HTMLElement>("relic-modal");
-const gameoverModal = element<HTMLElement>("gameover-modal");
-const lobbyCode = element<HTMLElement>("lobby-code");
-const seatList = element<HTMLElement>("seat-list");
-const copyButton = element<HTMLButtonElement>("copy-button");
-const addBotButton = element<HTMLButtonElement>("add-bot-button");
-const startButton = element<HTMLButtonElement>("start-button");
-const lobbyFootnote = element<HTMLElement>("lobby-footnote");
-const readyButton = element<HTMLButtonElement>("ready-button");
-const readyStatus = element<HTMLElement>("ready-status");
-const relicChoices = element<HTMLElement>("relic-choices");
-const tableBench = element<HTMLElement>("table-bench");
-const clearStamp = element<HTMLElement>("clear-stamp");
-const restartButton = element<HTMLButtonElement>("restart-button");
-const restartFootnote = element<HTMLElement>("restart-footnote");
-const gameoverCopy = element<HTMLElement>("gameover-copy");
-const roundsCleared = element<HTMLElement>("rounds-cleared");
-const roundsLabel = element<HTMLElement>("rounds-label");
-const runScore = element<HTMLElement>("run-score");
-const scoreLabel = element<HTMLElement>("score-label");
-const gameoverTitle = element<HTMLElement>("gameover-title");
-const gameoverEyebrow = element<HTMLElement>("gameover-eyebrow");
-const failureSealTop = element<HTMLElement>("failure-seal-top");
-const failureSealBottom = element<HTMLElement>("failure-seal-bottom");
-const roundKicker = element<HTMLElement>("round-kicker");
-const roundLabel = element<HTMLElement>("round-label");
-const roundType = element<HTMLElement>("round-type");
-const scoreInstrument = element<HTMLElement>("score-instrument");
-const teamScore = element<HTMLElement>("team-score");
-const targetScore = element<HTMLElement>("target-score");
-const targetWrap = element<HTMLElement>("target-wrap");
-const instrumentTitle = element<HTMLElement>("instrument-title");
-const scorePercent = element<HTMLElement>("score-percent");
-const scoreFill = element<HTMLElement>("score-fill");
-const chainReadout = element<HTMLElement>("chain-readout");
-const chainValue = element<HTMLElement>("chain-value");
-const playerLedger = element<HTMLElement>("player-ledger");
-const bossNotice = element<HTMLElement>("boss-notice");
-const bossName = element<HTMLElement>("boss-name");
-const bossRule = element<HTMLElement>("boss-rule");
-const selectionLabel = element<HTMLElement>("selection-label");
-const previewHand = element<HTMLElement>("preview-hand");
-const previewScore = element<HTMLElement>("preview-score");
-const discardButton = element<HTMLButtonElement>("discard-button");
-const playButton = element<HTMLButtonElement>("play-button");
-const discardCount = element<HTMLElement>("discard-count");
-const handsCount = element<HTMLElement>("hands-count");
-const relicRack = element<HTMLElement>("relic-rack");
-const tableMessage = element<HTMLElement>("table-message");
-const messagePlayer = element<HTMLElement>("message-player");
-const messageHand = element<HTMLElement>("message-hand");
-const messageChips = element<HTMLElement>("message-chips");
-const messageMult = element<HTMLElement>("message-mult");
-const messageTotal = element<HTMLElement>("message-total");
-const messageTable = element<HTMLElement>("message-table");
-const modeSelector = element<HTMLElement>("mode-selector");
-const modeCooperative = element<HTMLButtonElement>("mode-cooperative");
-const modeVersus = element<HTMLButtonElement>("mode-versus");
-const sortLabel = element<HTMLElement>("sort-label");
-const sortRank = element<HTMLButtonElement>("sort-rank");
-const sortSuit = element<HTMLButtonElement>("sort-suit");
-const toastStack = element<HTMLElement>("toast-stack");
-const connectionFlag = element<HTMLElement>("connection-flag");
-
-const audio = new TableAudio();
+const canvas = el<HTMLCanvasElement>("table-canvas");
 const scene = new TableScene(canvas);
-const numberFormat = new Intl.NumberFormat("en-US");
-const selected = new Set<string>();
+const audio = new TableAudio();
+const homeScreen = el("home-screen");
+const gameScreen = el("game-screen");
+const playerNameInput = el<HTMLInputElement>("player-name");
+const roomCodeInput = el<HTMLInputElement>("room-code");
+const createButton = el<HTMLButtonElement>("create-button");
+const joinButton = el<HTMLButtonElement>("join-button");
+const entryStatus = el("entry-status");
+const modalLayer = el("modal-layer");
+const lobbyModal = el("lobby-modal");
+const resultModal = el("result-modal");
+const gameoverModal = el("gameover-modal");
+const lobbyCode = el("lobby-code");
+const inGameCode = el<HTMLButtonElement>("in-game-code");
+const copyButton = el<HTMLButtonElement>("copy-button");
+const seatList = el("seat-list");
+const startButton = el<HTMLButtonElement>("start-button");
+const lobbyFootnote = el("lobby-footnote");
+const restartButton = el<HTMLButtonElement>("restart-button");
+const restartFootnote = el("restart-footnote");
+const guideLayer = el("guide-layer");
+const soundButton = el<HTMLButtonElement>("sound-button");
+const connectionFlag = el("connection-flag");
+const toastStack = el("toast-stack");
+
+const scoreZero = el("score-zero");
+const scoreOne = el("score-one");
+const teamZeroNames = el("team-zero-names");
+const teamOneNames = el("team-one-names");
+const handNumber = el("hand-number");
+const phaseKicker = el("phase-kicker");
+const phaseTitle = el("phase-title");
+const turnCopy = el("turn-copy");
+const trumpPanel = el("trump-panel");
+const trumpSymbol = el("trump-symbol");
+const trumpName = el("trump-name");
+const makerCopy = el("maker-copy");
+const seatLedger = el("seat-ledger");
+const tricksZero = el("tricks-zero");
+const tricksOne = el("tricks-one");
+const trickProgress = el("trick-progress");
+const historyList = el("history-list");
+const actionEyebrow = el("action-eyebrow");
+const actionTitle = el("action-title");
+const actionHint = el("action-hint");
+const bidActions = el("bid-actions");
+const playActions = el("play-actions");
+const suitActions = el("suit-actions");
+const orderButton = el<HTMLButtonElement>("order-button");
+const passButton = el<HTMLButtonElement>("pass-button");
+const aloneToggle = el<HTMLInputElement>("alone-toggle");
 
 let socket: WebSocket | null = null;
 let room: RoomView | null = null;
 let clientId = "";
 let sessionId = "";
 let roomCode = "";
-let playerName = localStorage.getItem("ocg-name") || "";
+let playerName = localStorage.getItem("euchre-name") || "";
 let reconnectAttempts = 0;
 let reconnectTimer: number | undefined;
 let heartbeatTimer: number | undefined;
 let manualClose = false;
 let connecting = false;
-let calloutTimer: number | undefined;
-let lastEventNumber = 0;
-let sortMode: HandSortMode =
-  localStorage.getItem("ocg-hand-sort") === "suit" ? "suit" : "rank";
-let manualHandOrder: string[] = [];
-let replacementId: string | null = null;
+let lastResult: Extract<GameEvent, { kind: "hand-scored" }> | null = null;
+const queryCode = new URLSearchParams(location.search).get("room")?.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4) || "";
 
 playerNameInput.value = playerName;
-
-const queryCode = new URLSearchParams(location.search).get("room");
-if (queryCode) {
-  roomCodeInput.value = queryCode.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
-  setTimeout(() => playerNameInput.focus(), 80);
-}
+roomCodeInput.value = queryCode;
+soundButton.setAttribute("aria-pressed", String(!audio.isMuted));
+soundButton.classList.toggle("is-muted", audio.isMuted);
 
 function websocketUrl(): string {
-  const configured = import.meta.env.VITE_WS_URL as string | undefined;
+  const configured = new URLSearchParams(location.search).get("ws");
   if (configured) return configured;
-  if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
-    if (location.port === "8080") return `ws://${location.host}`;
-    return "ws://localhost:8080";
-  }
-  if (location.hostname === "herm.cool" || location.hostname.endsWith(".herm.cool")) {
-    return "wss://online-card-game.fly.dev";
-  }
+  if (location.hostname === "localhost" || location.hostname === "127.0.0.1") return `ws://${location.hostname}:8080`;
+  if (location.hostname.endsWith("herm.cool")) return "wss://online-card-game.fly.dev";
   return `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}`;
 }
 
 function safe(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return value.replace(/[&<>'"]/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]!);
 }
 
-function format(value: number): string {
-  return numberFormat.format(Math.round(value));
-}
-
-function currentPlayer() {
-  return room?.players.find((player) => player.id === clientId);
-}
-
-function relicById(id: string): TablePieceDefinition | undefined {
-  return TABLE_PIECES.find((piece) => piece.id === id);
-}
-
-function relicColor(relic: TablePieceDefinition): string {
-  return {
-    copper: "#c28b49",
-    red: "#c45541",
-    ivory: "#d8c7a2",
-    black: "#28332f",
-    green: "#5f9182",
-    blue: "#6e8eab"
-  }[relic.tone];
-}
-
-function orderedHand() {
-  if (!room) return [];
-  const ordered = sortHand(room.hand, sortMode, manualHandOrder);
-  manualHandOrder = ordered.map((card) => card.id);
-  return ordered;
-}
-
-function applyHandSort(mode: Exclude<HandSortMode, "manual">): void {
-  if (!room) return;
-  sortMode = mode;
-  localStorage.setItem("ocg-hand-sort", mode);
-  manualHandOrder = sortHand(room.hand, mode).map((card) => card.id);
-  audio.play("deal");
-  scene.setHand(orderedHand(), selected);
-  renderSortControls();
-  updateSelectionPreview();
-}
-
-function reorderHand(cardId: string, toIndex: number, finished: boolean): void {
-  if (!room || room.phase !== "playing") return;
-  const current = orderedHand().map((card) => card.id);
-  sortMode = "manual";
-  manualHandOrder = moveCard(current, cardId, toIndex);
-  scene.setHand(orderedHand(), selected);
-  renderSortControls();
-  if (finished) {
-    audio.play("select");
-    showToast("Custom hand order set.");
-  }
-}
-
-function tableReadout(id: string, value: number): { label: string; progress: number } {
-  if (id === "brass-knuckle") {
-    return { label: `${value} calibration${value === 1 ? "" : "s"} · +${(2 + value * 0.5).toFixed(1)} mult`, progress: Math.min(1, value / 6) };
-  }
-  if (id === "red-lens") {
-    return { label: `${value % 10}/10 hearts · +${8 + Math.floor(value / 10) * 2} each`, progress: (value % 10) / 10 };
-  }
-  if (id === "stone-index") {
-    return { label: `${value} trigger${value === 1 ? "" : "s"} · +${3 + value} mult`, progress: Math.min(1, value / 5) };
-  }
-  if (id === "echo-coil") {
-    return { label: `${value}/3 charge to ×2`, progress: value / 3 };
-  }
-  if (id === "crown-wire") {
-    return { label: `${value % 6}/6 faces · +${7 + Math.floor(value / 6) * 2} each`, progress: (value % 6) / 6 };
-  }
-  if (id === "black-key") {
-    return { label: `+${Math.floor(value / 5)} mult · ${value % 5}/5 spades`, progress: (value % 5) / 5 };
-  }
-  if (id === "green-felt") {
-    return { label: `${value} flush${value === 1 ? "" : "es"} · +${45 + value * 15} chips`, progress: Math.min(1, value / 4) };
-  }
-  if (id === "ace-bearing") {
-    return { label: `${value}/3 aces to ×2.25`, progress: value / 3 };
-  }
-  if (id === "short-circuit") {
-    return { label: `${value} short-hand streak · next +${4 + value} mult`, progress: Math.min(1, value / 4) };
-  }
-  if (id === "double-clutch") {
-    return { label: `${value} trigger${value === 1 ? "" : "s"} · +${60 + value * 20} chips`, progress: Math.min(1, value / 4) };
-  }
-  if (id === "odd-gear") {
-    return { label: `${value % 8}/8 odds · +${6 + Math.floor(value / 8) * 2} each`, progress: (value % 8) / 8 };
-  }
-  return { label: "Armed for your final hand · ×1.75", progress: 1 };
-}
+function ownPlayer() { return room?.players.find((player) => player.id === clientId); }
+function seatName(seat: number | null): string { return seat === null ? "" : room?.players.find((player) => player.seat === seat)?.name || `Seat ${seat + 1}`; }
+function suitSymbol(suit: Suit | null): string { return suit ? ({ clubs: "♣", diamonds: "♦", hearts: "♥", spades: "♠" } as const)[suit] : "—"; }
+function titleSuit(suit: Suit): string { return suit[0].toUpperCase() + suit.slice(1); }
 
 function showToast(message: string, error = false): void {
-  const toast = document.createElement("div");
-  toast.className = `toast${error ? " is-error" : ""}`;
-  toast.textContent = message;
-  toastStack.append(toast);
-  setTimeout(() => toast.remove(), 3100);
+  const toast = document.createElement("div"); toast.className = `toast${error ? " is-error" : ""}`; toast.textContent = message;
+  toastStack.append(toast); setTimeout(() => toast.remove(), 3200);
 }
 
-function setEntryStatus(message: string): void {
-  entryStatus.textContent = message;
+function sessionKey(code: string): string { return `euchre-session-${code}`; }
+function saveSession(): void {
+  if (!roomCode || !sessionId) return;
+  localStorage.setItem(sessionKey(roomCode), sessionId);
+  localStorage.setItem("euchre-last-room", roomCode);
+  localStorage.setItem("euchre-name", playerName);
 }
 
 function setConnecting(value: boolean): void {
-  connecting = value;
-  createButton.disabled = value;
-  joinButton.disabled = value;
-  if (value) setEntryStatus("Contacting the table room…");
+  connecting = value; createButton.disabled = value; joinButton.disabled = value;
+  if (value) entryStatus.textContent = "Finding the table…";
 }
 
-function saveSession(): void {
-  localStorage.setItem("ocg-name", playerName);
-  localStorage.setItem(
-    "ocg-session",
-    JSON.stringify({
-      roomCode,
-      sessionId,
-      playerName
-    })
-  );
-}
-
-function readSession(code: string): string | undefined {
-  try {
-    const stored = JSON.parse(localStorage.getItem("ocg-session") || "{}") as {
-      roomCode?: string;
-      sessionId?: string;
-    };
-    return stored.roomCode === code ? stored.sessionId : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function connect(
-  intent: "create" | "join",
-  name: string,
-  code = "",
-  reconnect = false
-): void {
-  if (connecting) return;
-  manualClose = false;
-  setConnecting(!reconnect);
-  if (socket && socket.readyState <= WebSocket.OPEN) socket.close(4000, "Opening another table");
-
-  const ws = new WebSocket(websocketUrl());
-  socket = ws;
-
+function connect(intent: { type: "create" } | { type: "join"; code: string }, reconnect = false): void {
+  if (connecting || socket?.readyState === WebSocket.OPEN) return;
+  setConnecting(true); manualClose = false;
+  const ws = new WebSocket(websocketUrl()); socket = ws;
   ws.addEventListener("open", () => {
-    reconnectAttempts = 0;
-    connectionFlag.classList.add("is-hidden");
-    setConnecting(false);
-    playerName = name;
-    const message: ClientMessage =
-      intent === "create"
-        ? { type: "create", name }
-        : {
-            type: "join",
-            code,
-            name,
-            sessionId: reconnect ? sessionId : readSession(code)
-          };
-    ws.send(JSON.stringify(message));
+    setConnecting(false); reconnectAttempts = 0; connectionFlag.classList.add("is-hidden");
+    const stored = intent.type === "join" ? localStorage.getItem(sessionKey(intent.code)) || undefined : undefined;
+    sendRaw(intent.type === "create"
+      ? { type: "create", name: playerName, sessionId: reconnect ? sessionId : undefined }
+      : { type: "join", code: intent.code, name: playerName, sessionId: reconnect ? sessionId : stored });
     startHeartbeat();
   });
-
   ws.addEventListener("message", (event) => {
-    let message: ServerMessage;
-    try {
-      message = JSON.parse(event.data as string) as ServerMessage;
-    } catch {
-      return;
-    }
-    handleServerMessage(message);
+    try { handleMessage(JSON.parse(event.data) as ServerMessage); }
+    catch { showToast("The table sent an unreadable update.", true); }
   });
-
-  ws.addEventListener("close", (event) => {
-    stopHeartbeat();
-    connecting = false;
-    createButton.disabled = false;
-    joinButton.disabled = false;
-    if (socket === ws) socket = null;
-    if (manualClose || event.code === 4000 || event.code === 4001) return;
-    if (roomCode && sessionId) {
-      scheduleReconnect();
-    } else if (!room) {
-      setEntryStatus("The table service did not answer. Try again.");
-    }
+  ws.addEventListener("close", () => {
+    stopHeartbeat(); setConnecting(false);
+    if (!manualClose && roomCode && room) scheduleReconnect();
   });
-
   ws.addEventListener("error", () => {
-    if (!room) setEntryStatus("The table service could not be reached.");
+    if (!room) entryStatus.textContent = "Could not reach the room server. Try again.";
   });
 }
 
 function scheduleReconnect(): void {
-  window.clearTimeout(reconnectTimer);
-  reconnectAttempts += 1;
-  connectionFlag.classList.remove("is-hidden");
-  const delay = Math.min(7000, 600 * Math.pow(1.55, reconnectAttempts - 1));
-  reconnectTimer = window.setTimeout(
-    () => connect("join", playerName, roomCode, true),
-    delay
-  );
+  clearTimeout(reconnectTimer); connectionFlag.classList.remove("is-hidden");
+  const delay = Math.min(1000 * 2 ** reconnectAttempts, 10000); reconnectAttempts += 1;
+  reconnectTimer = window.setTimeout(() => { socket = null; connect({ type: "join", code: roomCode }, true); }, delay);
 }
+function startHeartbeat(): void { stopHeartbeat(); heartbeatTimer = window.setInterval(() => send({ type: "ping", at: Date.now() }), 20000); }
+function stopHeartbeat(): void { if (heartbeatTimer) clearInterval(heartbeatTimer); heartbeatTimer = undefined; }
+function sendRaw(message: ClientMessage): void { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }
+function send(message: ClientMessage): void { sendRaw(message); }
 
-function startHeartbeat(): void {
-  stopHeartbeat();
-  heartbeatTimer = window.setInterval(() => {
-    send({ type: "ping", at: Date.now() });
-  }, 20_000);
-}
-
-function stopHeartbeat(): void {
-  window.clearInterval(heartbeatTimer);
-  heartbeatTimer = undefined;
-}
-
-function send(message: ClientMessage): void {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    showToast("The table is reconnecting.", true);
-    return;
-  }
-  socket.send(JSON.stringify(message));
-}
-
-function handleServerMessage(message: ServerMessage): void {
+function handleMessage(message: ServerMessage): void {
   if (message.type === "welcome") {
-    clientId = message.clientId;
-    sessionId = message.sessionId;
-    roomCode = message.roomCode;
-    room = message.state;
-    manualHandOrder = [];
-    replacementId = null;
-    manualHandOrder = orderedHand().map((card) => card.id);
-    lastEventNumber = room.eventNumber;
-    saveSession();
-    setEntryStatus("");
-    enterTable();
-    render();
-    audio.play("join");
-    return;
+    clientId = message.clientId; sessionId = message.sessionId; roomCode = message.roomCode; room = message.state;
+    saveSession(); history.replaceState(null, "", `${location.pathname}?room=${roomCode}`); enterTable(); audio.play("join"); render(); return;
   }
-
-  if (message.type === "state") {
-    const previousRound = room?.round;
-    const previousPhase = room?.phase;
-    room = message.state;
-    if (previousRound && previousRound !== room.round) {
-      sortMode = localStorage.getItem("ocg-hand-sort") === "suit" ? "suit" : "rank";
-      manualHandOrder = [];
-      replacementId = null;
-    }
-    if (previousPhase !== room.phase && room.phase === "intermission") replacementId = null;
-    manualHandOrder = orderedHand().map((card) => card.id);
-    for (const id of [...selected]) {
-      if (!room.hand.some((card) => card.id === id)) selected.delete(id);
-    }
-    render();
-    return;
-  }
-
-  if (message.type === "event") {
-    if (message.event.eventNumber <= lastEventNumber) return;
-    lastEventNumber = message.event.eventNumber;
-    handleGameEvent(message.event);
-    return;
-  }
-
+  if (message.type === "state") { room = message.state; render(); return; }
+  if (message.type === "event") { handleEvent(message.event); return; }
   if (message.type === "error") {
-    setConnecting(false);
-    if (!room) setEntryStatus(message.message);
-    showToast(message.message, true);
-    if (message.code === "ROOM_NOT_FOUND" || message.code === "ROOM_FULL" || message.code === "GAME_STARTED") {
-      manualClose = true;
-      socket?.close(4000, "Join rejected");
-    }
+    showToast(message.message, true); entryStatus.textContent = message.message;
+    if (message.code === "ROOM_NOT_FOUND" || message.code === "ROOM_FULL" || message.code === "GAME_STARTED") { room = null; roomCode = ""; homeScreen.classList.remove("is-hidden"); gameScreen.classList.add("is-hidden"); }
   }
 }
 
-function enterTable(): void {
-  homeScreen.classList.add("is-hidden");
-  gameScreen.classList.remove("is-hidden");
-  scene.setMode(room?.phase || "lobby");
-  history.replaceState(null, "", `?room=${roomCode}`);
+function handleEvent(event: GameEvent): void {
+  if (event.kind === "hand-dealt") audio.play("deal");
+  if (event.kind === "trump-called") { audio.play(event.alone ? "big-score" : "select"); showToast(`${event.playerName} calls ${titleSuit(event.trump)}${event.alone ? " alone" : ""}.`); }
+  if (event.kind === "card-played") audio.play("play");
+  if (event.kind === "trick-won") audio.play("score");
+  if (event.kind === "hand-scored") { lastResult = event; audio.play(event.points >= 4 ? "big-score" : "score"); }
+  if (event.kind === "match-won") audio.play("win");
 }
 
-function handleGameEvent(event: GameEvent): void {
-  scene.playEvent(event, clientId);
-
-  if (event.kind === "hand-played") {
-    if (event.playerId === clientId) selected.clear();
-    const tableFired = event.score.tablePulses.some((pulse) => pulse.kind === "fire");
-    audio.play(event.score.total >= 450 || tableFired ? "big-score" : "score");
-    showScoreCallout(event);
-    if (event.playerId !== clientId) {
-      showToast(`${event.playerName} played ${event.score.handLabel} for ${format(event.score.total)}.`);
-    }
-  }
-
-  if (event.kind === "cards-discarded") {
-    if (event.playerId === clientId) {
-      selected.clear();
-      audio.play("discard");
-    }
-  }
-
-  if (event.kind === "round-started") {
-    audio.play("deal");
-    showToast(
-      event.boss
-        ? `${room?.mode === "versus" ? "Boss showdown" : "Boss contract"}: ${event.boss.name}. ${event.boss.rule}`
-        : room?.mode === "versus"
-          ? `Versus round ${event.round} is live. Highest score takes the win.`
-          : `Contract ${event.round} is live. Target ${format(event.target)}.`
-    );
-  }
-
-  if (event.kind === "round-won") {
-    audio.play("win");
-    if (event.mode === "versus") {
-      const names = event.winnerIds
-        .map((id) => room?.players.find((player) => player.id === id)?.name)
-        .filter(Boolean)
-        .join(" and ");
-      showToast(`${names || "The leader"} won round ${event.round} with ${format(event.score)}.`);
-    } else {
-      showToast(`Contract ${event.round} cleared at ${format(event.score)}.`);
-    }
-  }
-
-  if (event.kind === "match-won") {
-    audio.play("win");
-    showToast(`${event.winnerNames.join(" and ")} won the versus match.`);
-  }
-
-  if (event.kind === "round-lost") {
-    audio.play("lose");
-  }
-
-  if (event.kind === "player-joined") {
-    audio.play("join");
-    showToast(`${event.playerName} took a seat.`);
-  }
-
-  if (event.kind === "player-left") {
-    showToast(`${event.playerName} left the table.`);
-  }
-
-  if (event.kind === "relic-picked") {
-    if (event.playerId === clientId) audio.play("relic");
-    if (event.replacedRelicId && event.playerId === clientId) {
-      const removed = relicById(event.replacedRelicId)?.name || "Old piece";
-      const installed = relicById(event.relicId)?.name || "New piece";
-      showToast(`${removed} retired. ${installed} installed.`);
-    }
-  }
-}
-
-function showScoreCallout(event: Extract<GameEvent, { kind: "hand-played" }>): void {
-  window.clearTimeout(calloutTimer);
-  tableMessage.classList.remove("is-showing");
-  void tableMessage.offsetWidth;
-  messagePlayer.textContent = `${event.playerName} winds the machine`;
-  messageHand.textContent = event.score.handLabel;
-  messageChips.textContent = format(event.score.finalChips);
-  messageMult.textContent =
-    event.score.finalMultiplier % 1 === 0
-      ? format(event.score.finalMultiplier)
-      : event.score.finalMultiplier.toFixed(2);
-  messageTotal.textContent = format(event.score.total);
-  messageTable.innerHTML = event.score.tablePulses
-    .slice(0, 3)
-    .map(
-      (pulse) =>
-        `<span class="table-pulse is-${pulse.kind}"><b>${safe(pulse.label)}</b> ${safe(pulse.detail)}</span>`
-    )
-    .join("");
-  messageTable.classList.toggle("is-hidden", event.score.tablePulses.length === 0);
-  tableMessage.classList.add("is-showing");
-  calloutTimer = window.setTimeout(() => tableMessage.classList.remove("is-showing"), 2400);
-}
+function enterTable(): void { homeScreen.classList.add("is-hidden"); gameScreen.classList.remove("is-hidden"); }
 
 function render(): void {
   if (!room) return;
-  scene.setMode(room.phase);
-  scene.setHand(orderedHand(), selected);
-  scene.setPlayers(room.players, clientId);
-  scene.setTablePieces(room.ownRelics, room.ownTableState);
-  renderHud();
-  renderLedger();
-  renderRelics();
-  renderSortControls();
-  renderModal();
-  updateSelectionPreview();
+  const own = ownPlayer(); const ownSeat = own?.seat || 0;
+  scene.setState(room, ownSeat);
+  inGameCode.textContent = room.code; lobbyCode.textContent = room.code;
+  scoreZero.textContent = String(room.teamScores[0]); scoreOne.textContent = String(room.teamScores[1]);
+  teamZeroNames.textContent = room.players.filter((p) => p.team === 0).map((p) => p.name).join(" & ");
+  teamOneNames.textContent = room.players.filter((p) => p.team === 1).map((p) => p.name).join(" & ");
+  handNumber.textContent = room.handNumber ? `HAND ${room.handNumber}` : "READY";
+  tricksZero.textContent = String(room.teamTricks[0]); tricksOne.textContent = String(room.teamTricks[1]);
+  trickProgress.textContent = `${room.completedTricks.length} of 5 tricks played`;
+  renderPhase(); renderTrump(); renderSeats(); renderHistory(); renderActions(); renderModals();
 }
 
-function renderHud(): void {
+function renderPhase(): void {
   if (!room) return;
-  const self = currentPlayer();
-  const versusLeader = Math.max(0, ...room.players.map((player) => player.roundScore));
-  const percent =
-    room.mode === "versus"
-      ? versusLeader
-        ? Math.min(100, ((self?.roundScore ?? 0) / versusLeader) * 100)
-        : 0
-      : room.target
-        ? Math.min(100, (room.teamScore / room.target) * 100)
-        : 0;
-  roundLabel.textContent = `Round ${room.round}`;
-  roundKicker.textContent = room.mode === "versus" ? "Match" : "Contract";
-  roundType.textContent =
-    room.mode === "versus"
-      ? room.boss
-        ? "Boss showdown"
-        : "Table versus"
-      : room.boss
-        ? "Boss contract"
-        : "Open table";
-  instrumentTitle.textContent = room.mode === "versus" ? "Round leader" : "Shared score";
-  scoreInstrument.setAttribute(
-    "aria-label",
-    room.mode === "versus" ? "Versus round leader" : "Shared contract score"
-  );
-  teamScore.textContent = format(room.mode === "versus" ? versusLeader : room.teamScore);
-  if (targetWrap.firstChild) targetWrap.firstChild.textContent = room.mode === "versus" ? "" : "/ ";
-  targetScore.textContent = room.mode === "versus" ? "TOP SCORE" : format(room.target);
-  scorePercent.textContent =
-    room.mode === "versus"
-      ? versusLeader === 0
-        ? "RACE"
-        : (self?.roundScore ?? 0) === versusLeader
-          ? "LEAD"
-          : `−${format(versusLeader - (self?.roundScore ?? 0))}`
-      : `${Math.round(percent)}%`;
-  scoreFill.style.width = `${percent}%`;
-  chainValue.textContent = room.chain ? `×${(1 + room.chain * 0.15).toFixed(2)}` : "Quiet";
-  chainReadout.querySelectorAll(".chain-cells i").forEach((cell, index) => {
-    cell.classList.toggle("is-live", index < room!.chain);
-  });
-  chainReadout.querySelector(".chain-cells")?.setAttribute("aria-label", `${room.chain} echo chain`);
+  if (room.phase === "lobby") { phaseKicker.textContent = "TABLE OPEN"; phaseTitle.textContent = "Waiting for players"; turnCopy.textContent = "Share the four-letter room code"; return; }
+  if (room.phase === "bidding") {
+    phaseKicker.textContent = room.bidRound === 1 ? "FIRST ROUND" : "SECOND ROUND";
+    phaseTitle.textContent = room.bidRound === 1 ? "Order or pass" : "Name another suit";
+  } else if (room.phase === "playing") { phaseKicker.textContent = `TRICK ${Math.min(5, room.completedTricks.length + 1)}`; phaseTitle.textContent = room.currentTrick.length ? `Led ${titleSuit(effectiveSuit(room.currentTrick[0].card, room.trump!))}` : "Lead the trick"; }
+  else if (room.phase === "hand-end") { phaseKicker.textContent = "HAND COMPLETE"; phaseTitle.textContent = "Counting points"; }
+  else { phaseKicker.textContent = "GAME COMPLETE"; phaseTitle.textContent = `Team ${(room.winningTeam ?? 0) + 1} wins`; }
+  turnCopy.textContent = room.turnSeat === null ? "" : `${seatName(room.turnSeat)} to ${room.phase === "bidding" ? "call" : "play"}`;
+}
 
-  bossNotice.classList.toggle("is-hidden", !room.boss);
-  if (room.boss) {
-    bossName.textContent = room.boss.name;
-    bossRule.textContent = room.boss.rule;
+function renderTrump(): void {
+  if (!room) return;
+  const shownSuit = room.trump || (room.bidRound === 1 ? room.upcard?.suit || null : null);
+  trumpSymbol.textContent = suitSymbol(shownSuit);
+  trumpSymbol.classList.toggle("is-red", shownSuit === "hearts" || shownSuit === "diamonds");
+  trumpName.textContent = room.trump ? titleSuit(room.trump) : room.bidRound === 1 ? "Up for order" : "Turned down";
+  makerCopy.textContent = room.makerSeat === null ? (room.upcard ? `${rankLabel(room.upcard.rank)} of ${titleSuit(room.upcard.suit)}` : "Waiting for the deal") : `${seatName(room.makerSeat)} made it${room.alone ? " · going alone" : ""}`;
+  trumpPanel.classList.toggle("has-trump", Boolean(room.trump));
+}
+
+function renderSeats(): void {
+  if (!room) return;
+  const view = room;
+  const ownSeat = ownPlayer()?.seat || 0;
+  seatLedger.innerHTML = view.players.map((player) => {
+    const relative = (player.seat - ownSeat + 4) % 4;
+    const place = ["YOU", "LEFT", "PARTNER", "RIGHT"][relative];
+    const badges = [player.seat === view.dealerSeat ? "DEALER" : "", player.seat === view.makerSeat ? (view.alone ? "LONER" : "MAKER") : "", player.seat === view.sittingOutSeat ? "SITTING OUT" : ""].filter(Boolean).join(" · ");
+    return `<div class="seat-row team-${player.team}${player.seat === view.turnSeat ? " is-turn" : ""}${player.seat === ownSeat ? " is-self" : ""}">
+      <i style="--seat-color:${player.color}"></i><div><span>SEAT ${player.seat + 1} · ${place}</span><strong>${safe(player.name)}</strong><small>${player.isBot ? "TABLE REGULAR" : player.connected ? "CONNECTED" : "AUTOPILOT"}${badges ? ` · ${badges}` : ""}</small></div><b>${player.tricks}</b>
+    </div>`;
+  }).join("");
+}
+
+function renderHistory(): void {
+  if (!room) return;
+  historyList.innerHTML = room.history.slice(0, 6).map((entry) => `<li class="tone-${entry.tone}">${safe(entry.text)}</li>`).join("");
+}
+
+function renderActions(): void {
+  if (!room) return;
+  const own = ownPlayer(); const isTurn = own?.seat === room.turnSeat;
+  bidActions.classList.toggle("is-hidden", room.phase !== "bidding" || !isTurn);
+  playActions.classList.toggle("is-hidden", room.phase !== "playing");
+  if (!isTurn) { actionEyebrow.textContent = room.phase === "playing" ? "AT THE TABLE" : "THE CALL"; actionTitle.textContent = room.turnSeat === null ? "Waiting for the next deal" : `${seatName(room.turnSeat)} is thinking`; actionHint.textContent = own?.seat === room.sittingOutSeat ? "You called alone with your partner; enjoy the view." : "Your turn is marked around the table."; return; }
+  actionEyebrow.textContent = "YOUR TURN";
+  if (room.phase === "bidding") {
+    actionTitle.textContent = room.bidRound === 1 ? `Order ${titleSuit(room.upcard!.suit)}?` : "Choose trump";
+    actionHint.textContent = room.bidRound === 2 && !room.canPass ? "Stick the dealer—you must call a suit." : "Go alone before making your call.";
+    orderButton.classList.toggle("is-hidden", room.bidRound !== 1);
+    passButton.classList.toggle("is-hidden", !room.canPass);
+    suitActions.innerHTML = room.callableSuits.map((suit) => `<button type="button" data-suit="${suit}" class="suit-button ${suit === "hearts" || suit === "diamonds" ? "is-red" : ""}"><b>${suitSymbol(suit)}</b><span>${titleSuit(suit)}</span></button>`).join("");
+  } else if (room.phase === "playing") {
+    actionTitle.textContent = room.currentTrick.length ? `Follow ${titleSuit(effectiveSuit(room.currentTrick[0].card, room.trump!))}` : "Lead a card";
+    actionHint.textContent = `${room.legalCardIds.length} legal ${room.legalCardIds.length === 1 ? "card" : "cards"} raised on the table.`;
   }
-
-  handsCount.textContent = `${self?.handsLeft ?? 0} left`;
-  discardCount.textContent = `${self?.discardsLeft ?? 0} left`;
 }
 
-function renderLedger(): void {
+function renderModals(): void {
   if (!room) return;
-  playerLedger.innerHTML = `
-    <div class="ledger-heading"><span>${room.mode === "versus" ? "Versus ledger" : "Table ledger"}</span><span>${room.players.length}/4</span></div>
-    ${room.players
-      .map((player) => {
-        const status = !player.connected
-          ? "Reconnecting"
-          : player.isBot
-            ? `${player.handsLeft} hand${player.handsLeft === 1 ? "" : "s"} · house`
-            : `${player.handsLeft} hand${player.handsLeft === 1 ? "" : "s"} left`;
-        return `
-          <div class="player-row${player.id === clientId ? " is-self" : ""}${room!.roundWinnerIds.includes(player.id) ? " is-round-winner" : ""}" style="--seat-color:${player.color}">
-            <i class="player-color"></i>
-            <div class="player-info">
-              <strong>${safe(player.name)}${player.id === clientId ? " · you" : ""}</strong>
-              <span>${status}</span>
-            </div>
-            <div class="player-tally">
-              <b>${format(player.roundScore)}</b>
-              <span>${room!.mode === "versus" ? `${player.roundWins}/${VERSUS_WINS_TO_MATCH} wins` : "this round"}</span>
-            </div>
-          </div>
-        `;
-      })
-      .join("")}
-  `;
-}
-
-function renderRelics(): void {
-  if (!room) return;
-  relicRack.innerHTML = Array.from({ length: MAX_TABLE_PIECES }, (_, index) => {
-      const id = room!.ownRelics[index];
-      if (!id) {
-        return `<div class="rack-relic is-empty" aria-label="Empty table space ${index + 1}"><span>0${index + 1}</span></div>`;
-      }
-      const relic = relicById(id);
-      if (!relic) return "";
-      const ink = relic.tone === "black" ? "#d7c79e" : "#18241f";
-      const state = tableReadout(id, room!.ownTableState[id] ?? 0);
-      return `
-        <div
-          class="rack-relic"
-          tabindex="0"
-          style="--relic-tone:${relicColor(relic)};--relic-ink:${ink}"
-          data-label="${safe(`${relic.name}: ${state.label}. ${relic.description}`)}"
-          aria-label="${safe(`${relic.name}. ${state.label}. ${relic.description}`)}"
-        >
-          <span class="rack-category">${safe(relic.category.slice(0, 1).toUpperCase())}</span>
-          <span class="rack-progress"><i style="width:${Math.max(4, state.progress * 100)}%"></i></span>
-        </div>
-      `;
-    })
-    .join("");
-}
-
-function renderSortControls(): void {
-  const rankActive = sortMode === "rank";
-  const suitActive = sortMode === "suit";
-  sortRank.classList.toggle("is-active", rankActive);
-  sortSuit.classList.toggle("is-active", suitActive);
-  sortRank.setAttribute("aria-pressed", String(rankActive));
-  sortSuit.setAttribute("aria-pressed", String(suitActive));
-  sortLabel.textContent = sortMode === "manual" ? "Custom order" : "Sort hand";
-}
-
-function renderModal(): void {
-  if (!room) return;
-  lobbyModal.classList.add("is-hidden");
-  relicModal.classList.add("is-hidden");
-  gameoverModal.classList.add("is-hidden");
-
-  if (room.phase === "lobby") {
-    renderLobby();
-    lobbyModal.classList.remove("is-hidden");
-  } else if (room.phase === "intermission") {
-    renderIntermission();
-    relicModal.classList.remove("is-hidden");
-  } else if (room.phase === "gameover") {
-    renderGameOver();
-    gameoverModal.classList.remove("is-hidden");
+  const showLobby = room.phase === "lobby", showResult = room.phase === "hand-end", showGameover = room.phase === "gameover";
+  modalLayer.classList.toggle("is-hidden", !showLobby && !showResult && !showGameover);
+  lobbyModal.classList.toggle("is-hidden", !showLobby); resultModal.classList.toggle("is-hidden", !showResult); gameoverModal.classList.toggle("is-hidden", !showGameover);
+  if (showLobby) renderLobby();
+  if (showResult && lastResult) {
+    el("result-stamp").textContent = `+${lastResult.points}`; el("result-title").textContent = `Team ${lastResult.scoringTeam + 1} scores.`;
+    el("result-eyebrow").textContent = lastResult.euchred ? "Euchred" : lastResult.march ? (lastResult.alone ? "Loner march" : "March") : "Makers made it";
+    el("result-copy").textContent = lastResult.euchred ? `The makers took ${lastResult.makerTricks}; the defenders earn 2 points.` : `The makers took ${lastResult.makerTricks} tricks and earn ${lastResult.points} point${lastResult.points === 1 ? "" : "s"}.`;
   }
-
-  modalLayer.classList.toggle("is-hidden", room.phase === "playing");
+  if (showGameover) {
+    el("gameover-title").textContent = `Team ${(room.winningTeam ?? 0) + 1} takes the table.`;
+    el("gameover-copy").textContent = `${room.teamScores[0]}–${room.teamScores[1]} after ${room.handNumber} hands.`;
+    const host = ownPlayer()?.host; restartButton.classList.toggle("is-hidden", !host); restartFootnote.textContent = host ? "You are the host." : `Waiting for ${room.players.find((p) => p.host)?.name || "the host"}.`;
+  }
 }
 
 function renderLobby(): void {
   if (!room) return;
-  const self = currentPlayer();
-  const isHost = Boolean(self?.host);
-  lobbyCode.textContent = room.code;
-  modeCooperative.classList.toggle("is-active", room.mode === "cooperative");
-  modeVersus.classList.toggle("is-active", room.mode === "versus");
-  modeCooperative.disabled = !isHost;
-  modeVersus.disabled = !isHost;
-  seatList.innerHTML = Array.from({ length: 4 }, (_, index) => {
-    const player = room!.players[index];
-    if (!player) {
-      return `
-        <div class="seat-row is-empty">
-          <span class="seat-number">0${index + 1}</span>
-          <div class="seat-name"><strong>Open chair</strong><span>Waiting for a player</span></div>
-        </div>
-      `;
-    }
-    return `
-      <div class="seat-row">
-        <span class="seat-number">0${index + 1}</span>
-        <div class="seat-name">
-          <strong>${safe(player.name)}${player.id === clientId ? " · you" : ""}</strong>
-          <span>${player.isBot ? "House player" : player.connected ? "Connected" : "Away"}</span>
-        </div>
-        ${player.host ? '<span class="host-stamp">Host</span>' : ""}
-        ${
-          isHost && player.isBot
-            ? `<button class="remove-seat" type="button" data-remove-bot="${player.id}">Remove</button>`
-            : ""
-        }
-      </div>
-    `;
-  }).join("");
-  addBotButton.classList.toggle("is-hidden", !isHost);
-  addBotButton.disabled = room.players.length >= 4;
-  startButton.classList.toggle("is-hidden", !isHost);
-  startButton.disabled = room.mode === "versus" && room.players.length < 2;
-  startButton.textContent =
-    room.mode === "versus" ? "Start versus match" : "Deal the first contract";
-  lobbyFootnote.textContent = isHost
-    ? room.mode === "versus"
-      ? room.players.length < 2
-        ? "Versus needs another player or a house seat."
-        : `You are the host. First to ${VERSUS_WINS_TO_MATCH} round wins takes the match.`
-      : "You are the host. The crew can begin with any number of occupied chairs."
-    : `Waiting for the host to start ${room.mode === "versus" ? "the versus match" : "the first contract"}.`;
+  seatList.innerHTML = room.players.map((player) => `<div class="lobby-seat team-${player.team}"><span>${player.seat + 1}</span><div><b>${safe(player.name)}</b><small>TEAM ${player.team + 1} · ${player.isBot ? "BOT SEAT" : player.host ? "HOST" : "PLAYER"}</small></div><i>${player.seat % 2 === 0 ? "N–S" : "E–W"}</i></div>`).join("");
+  const host = ownPlayer()?.host; startButton.classList.toggle("is-hidden", !host); lobbyFootnote.textContent = host ? "Bots are ready. Deal whenever you are." : `Waiting for ${room.players.find((p) => p.host)?.name || "the host"} to deal.`;
 }
 
-function renderIntermission(): void {
-  if (!room) return;
-  const self = currentPlayer();
-  if (!self) return;
-  clearStamp.textContent =
-    room.mode === "versus"
-      ? `${room.roundWinnerIds
-          .map((id) => room!.players.find((player) => player.id === id)?.name)
-          .filter(Boolean)
-          .join(" & ")} won round ${room.round}`
-      : `Round ${room.round} cleared`;
-  const chosen = room.relicChoices.find((id) => room!.ownRelics.includes(id));
-  const needsReplacement = room.ownRelics.length >= MAX_TABLE_PIECES && !self.pickedRelic;
-  if (self.pickedRelic) replacementId = null;
-  tableBench.classList.toggle("is-hidden", room.ownRelics.length === 0);
-  tableBench.innerHTML = room.ownRelics.length
-    ? `
-      <div class="bench-heading">
-        <span>Your table · ${room.ownRelics.length}/${MAX_TABLE_PIECES} pieces</span>
-        <b>${needsReplacement ? "Select one piece to clear" : "Stored state carries forward"}</b>
-      </div>
-      <div class="bench-parts">
-        ${room.ownRelics
-          .map((id, index) => {
-            const relic = relicById(id);
-            if (!relic) return "";
-            const state = tableReadout(id, room!.ownTableState[id] ?? 0);
-            return `
-              <button
-                class="bench-part${replacementId === id ? " is-replacing" : ""}"
-                type="button"
-                ${needsReplacement ? `data-replace="${id}"` : "disabled"}
-                style="--relic-tone:${relicColor(relic)}"
-              >
-                <small>Space 0${index + 1} · ${safe(relic.category)}</small>
-                <strong>${safe(relic.name)}</strong>
-                <span>${safe(state.label)}</span>
-              </button>
-            `;
-          })
-          .join("")}
-      </div>
-    `
-    : "";
-  relicChoices.innerHTML = room.relicChoices
-    .map((id) => {
-      const relic = relicById(id);
-      if (!relic) return "";
-      return `
-        <button
-          class="relic-choice${chosen === id ? " is-picked" : ""}"
-          type="button"
-          data-relic="${id}"
-          ${self.pickedRelic ? "disabled" : ""}
-          style="--relic-tone:${relicColor(relic)}"
-        >
-          <span class="relic-art" aria-hidden="true"></span>
-          <span class="relic-copy">
-            <small>${safe(relic.category)} · ${safe(relic.short)}</small>
-            <strong>${safe(relic.name)}</strong>
-            <span>${safe(relic.description)}</span>
-            <em>${safe(relic.tableEffect)}</em>
-          </span>
-        </button>
-      `;
-    })
-    .join("");
+function rankLabel(rank: number): string { return rank === 14 ? "Ace" : rank === 13 ? "King" : rank === 12 ? "Queen" : rank === 11 ? "Jack" : String(rank); }
 
-  const readyPlayers = room.players.filter((player) => player.ready).length;
-  if (!self.pickedRelic) {
-    readyStatus.textContent = needsReplacement
-      ? replacementId
-        ? "Outgoing piece selected. Choose what takes its place."
-        : "Every table space is occupied. Select one piece above to clear."
-      : "Choose one piece to set on the table.";
-  } else if (self.ready) {
-    readyStatus.textContent =
-      readyPlayers === room.players.length
-        ? `The next ${room.mode === "versus" ? "showdown" : "contract"} is being dealt.`
-        : `Ready. Waiting for ${room.players.length - readyPlayers} more.`;
-  } else {
-    readyStatus.textContent = `${room.players.filter((player) => player.pickedRelic).length}/${room.players.length} players have chosen.`;
-  }
-  readyButton.disabled = !self.pickedRelic;
-  readyButton.textContent = self.ready
-    ? "Stand down"
-    : `Ready for next ${room.mode === "versus" ? "round" : "deal"}`;
+async function copyInvitation(): Promise<void> {
+  if (!roomCode) return; const url = `${location.origin}${location.pathname}?room=${roomCode}`;
+  try { await navigator.clipboard.writeText(url); showToast("Invitation copied."); }
+  catch { showToast(`Room code: ${roomCode}`); }
 }
 
-function renderGameOver(): void {
-  if (!room) return;
-  const self = currentPlayer();
-  const total = room.players.reduce((sum, player) => sum + player.totalScore, 0);
-  if (room.mode === "versus") {
-    const winners = room.matchWinnerIds
-      .map((id) => room!.players.find((player) => player.id === id)?.name)
-      .filter(Boolean)
-      .join(" and ");
-    gameoverTitle.textContent = `${winners || "The leader"} owns the table.`;
-    gameoverCopy.textContent = `The match closed in round ${room.round}. Every seat built from the same hand budget; the winning table reached ${VERSUS_WINS_TO_MATCH} round wins first.`;
-    gameoverEyebrow.textContent = "The table has a winner.";
-    failureSealTop.textContent = "Match";
-    failureSealBottom.textContent = "Won";
-    roundsLabel.textContent = "Rounds played";
-    scoreLabel.textContent = "Combined score";
-    restartButton.textContent = "Play another match";
-  } else {
-    gameoverTitle.textContent = "The machine ran dry.";
-    gameoverCopy.textContent = `The table reached ${format(room.teamScore)} of ${format(room.target)} before the final hand. Your pieces and room remain in the ledger.`;
-    gameoverEyebrow.textContent = "The house held.";
-    failureSealTop.textContent = "Contract";
-    failureSealBottom.textContent = "Closed";
-    roundsLabel.textContent = "Rounds cleared";
-    scoreLabel.textContent = "Table score";
-    restartButton.textContent = "Run the table again";
-  }
-  roundsCleared.textContent = String(
-    room.mode === "versus" ? room.round : Math.max(0, room.round - 1)
-  );
-  runScore.textContent = format(total);
-  restartButton.classList.toggle("is-hidden", !self?.host);
-  restartFootnote.textContent = self?.host
-    ? `A new ${room.mode === "versus" ? "match" : "run"} keeps every occupied chair.`
-    : `Waiting for the host to reopen the ${room.mode === "versus" ? "match" : "contract"}.`;
+function validName(): string | null {
+  const value = playerNameInput.value.trim().replace(/[^\p{L}\p{N}\s.'_-]/gu, "").slice(0, 18);
+  if (!value) { entryStatus.textContent = "Write your name on the scorecard first."; playerNameInput.focus(); return null; }
+  playerName = value; localStorage.setItem("euchre-name", value); return value;
 }
 
-function updateSelectionPreview(): void {
-  if (!room) return;
-  const self = currentPlayer();
-  const cards = orderedHand().filter((card) => selected.has(card.id));
-  selectionLabel.textContent = cards.length
-    ? `${cards.length} card${cards.length === 1 ? "" : "s"} selected`
-    : "Choose up to five cards";
-
-  if (!cards.length) {
-    previewHand.textContent = "No hand selected";
-    previewScore.textContent = "Cards are scored when played";
-  } else {
-    const score = scoreHand(cards, {
-      pieceIds: room.ownRelics,
-      tableState: room.ownTableState,
-      previousHand: room.lastHand,
-      chain: room.chain,
-      boss: room.boss,
-      handsLeftBeforePlay: self?.handsLeft ?? 0
-    });
-    previewHand.textContent = score.handLabel;
-    const pulse = score.tablePulses.find((item) => item.kind === "fire") ?? score.tablePulses[0];
-    previewScore.textContent = `${format(score.finalChips)} chips × ${score.finalMultiplier.toFixed(score.finalMultiplier % 1 ? 2 : 0)} mult = ${format(score.total)}${pulse ? ` · ${pulse.label}: ${pulse.detail}` : ""}`;
-  }
-
-  const canAct = room.phase === "playing" && Boolean(self?.connected) && (self?.handsLeft ?? 0) > 0;
-  playButton.disabled = !canAct || cards.length === 0;
-  discardButton.disabled = !canAct || cards.length === 0 || (self?.discardsLeft ?? 0) <= 0;
-  scene.setSelected(selected);
-}
-
-function toggleCard(cardId: string): void {
-  if (!room || room.phase !== "playing") return;
-  const self = currentPlayer();
-  if (!self || self.handsLeft <= 0) return;
-  if (selected.has(cardId)) {
-    selected.delete(cardId);
-  } else {
-    if (selected.size >= 5) {
-      showToast("A hand can use at most five cards.", true);
-      return;
-    }
-    selected.add(cardId);
-  }
-  audio.play("select");
-  scene.pulseSelection();
-  updateSelectionPreview();
-}
-
-function playSelected(): void {
-  if (playButton.disabled || !selected.size) return;
-  audio.play("play");
-  send({ type: "play", cardIds: [...selected] });
-  playButton.disabled = true;
-  discardButton.disabled = true;
-}
-
-function discardSelected(): void {
-  if (discardButton.disabled || !selected.size) return;
-  send({ type: "discard", cardIds: [...selected] });
-  playButton.disabled = true;
-  discardButton.disabled = true;
-}
-
-function openGuide(): void {
-  guideLayer.classList.remove("is-hidden");
-}
-
-function closeGuide(): void {
-  guideLayer.classList.add("is-hidden");
-}
-
-function cleanName(): string {
-  return playerNameInput.value.trim().slice(0, 18);
-}
-
-function beginCreate(): void {
-  const name = cleanName();
-  if (!name) {
-    setEntryStatus("Write a name for your seat.");
-    playerNameInput.focus();
-    return;
-  }
-  void audio.unlock();
-  connect("create", name);
-}
-
-function beginJoin(): void {
-  const name = cleanName();
-  const code = roomCodeInput.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
-  if (!name) {
-    setEntryStatus("Write a name for your seat.");
-    playerNameInput.focus();
-    return;
-  }
-  if (code.length !== 4) {
-    setEntryStatus("The table key has four letters.");
-    roomCodeInput.focus();
-    return;
-  }
-  void audio.unlock();
-  connect("join", name, code);
-}
-
-scene.setCallbacks(
-  (cardId) => toggleCard(cardId),
-  (cardId) => {
-    if (cardId) audio.play("hover");
-  },
-  (cardId, toIndex, finished) => reorderHand(cardId, toIndex, finished)
-);
-
-createButton.addEventListener("click", beginCreate);
-joinButton.addEventListener("click", beginJoin);
-playButton.addEventListener("click", playSelected);
-discardButton.addEventListener("click", discardSelected);
-sortRank.addEventListener("click", () => applyHandSort("rank"));
-sortSuit.addEventListener("click", () => applyHandSort("suit"));
-howButton.addEventListener("click", openGuide);
-guideClose.addEventListener("click", closeGuide);
-guideLayer.addEventListener("pointerdown", (event) => {
-  if (event.target === guideLayer) closeGuide();
+createButton.addEventListener("click", () => { if (validName()) connect({ type: "create" }); });
+joinButton.addEventListener("click", () => { if (!validName()) return; const code = roomCodeInput.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4); if (code.length !== 4) { entryStatus.textContent = "Enter the four-letter room code."; return; } connect({ type: "join", code }); });
+roomCodeInput.addEventListener("input", () => { roomCodeInput.value = roomCodeInput.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4); });
+roomCodeInput.addEventListener("keydown", (event) => { if (event.key === "Enter") joinButton.click(); });
+playerNameInput.addEventListener("keydown", (event) => { if (event.key === "Enter" && !roomCodeInput.value) createButton.click(); });
+copyButton.addEventListener("click", copyInvitation); inGameCode.addEventListener("click", copyInvitation);
+startButton.addEventListener("click", () => send({ type: "start" })); restartButton.addEventListener("click", () => send({ type: "restart" }));
+orderButton.addEventListener("click", () => send({ type: "bid", action: "order-up", alone: aloneToggle.checked }));
+passButton.addEventListener("click", () => send({ type: "bid", action: "pass" }));
+suitActions.addEventListener("click", (event) => { const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-suit]"); if (button) send({ type: "bid", action: "call", suit: button.dataset.suit as Suit, alone: aloneToggle.checked }); });
+scene.setCardHandler((cardId) => { if (room?.legalCardIds.includes(cardId)) send({ type: "play-card", cardId }); });
+el("how-button").addEventListener("click", () => guideLayer.classList.remove("is-hidden"));
+el("guide-close").addEventListener("click", () => guideLayer.classList.add("is-hidden"));
+guideLayer.addEventListener("click", (event) => { if (event.target === guideLayer) guideLayer.classList.add("is-hidden"); });
+soundButton.addEventListener("click", () => { audio.setMuted(!audio.isMuted); soundButton.setAttribute("aria-pressed", String(!audio.isMuted)); soundButton.classList.toggle("is-muted", audio.isMuted); if (!audio.isMuted) audio.play("select"); });
+addEventListener("keydown", (event) => {
+  if (event.key === "Escape") guideLayer.classList.add("is-hidden");
+  const index = Number(event.key) - 1;
+  if (room && index >= 0 && index < room.hand.length && room.legalCardIds.includes(room.hand[index].id) && !event.repeat) send({ type: "play-card", cardId: room.hand[index].id });
+  if (room?.phase === "bidding" && ownPlayer()?.seat === room.turnSeat && event.key.toLowerCase() === "p" && room.canPass) send({ type: "bid", action: "pass" });
 });
 
-soundButton.addEventListener("click", () => {
-  audio.setMuted(!audio.isMuted);
-  soundButton.textContent = audio.isMuted ? "Sound off" : "Sound on";
-  soundButton.setAttribute("aria-pressed", String(audio.isMuted));
-  if (!audio.isMuted) audio.play("select");
-});
-soundButton.textContent = audio.isMuted ? "Sound off" : "Sound on";
-soundButton.setAttribute("aria-pressed", String(audio.isMuted));
-
-roomCodeInput.addEventListener("input", () => {
-  roomCodeInput.value = roomCodeInput.value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 4);
-});
-
-copyButton.addEventListener("click", async () => {
-  if (!room) return;
-  const path = location.pathname.endsWith("/") ? location.pathname : `${location.pathname}/`;
-  const invite = `${location.origin}${path}?room=${room.code}`;
-  try {
-    await navigator.clipboard.writeText(`Join my Online Card Game table: ${invite} — key ${room.code}`);
-    copyButton.textContent = "Invitation copied";
-    showToast("Invitation copied to the clipboard.");
-    setTimeout(() => (copyButton.textContent = "Copy invitation"), 1800);
-  } catch {
-    showToast(`Share the table key ${room.code}.`);
-  }
-});
-
-startButton.addEventListener("click", () => {
-  audio.play("deal");
-  send({ type: "start" });
-});
-
-modeSelector.addEventListener("click", (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-mode]");
-  if (!button?.dataset.mode || button.disabled) return;
-  const mode = button.dataset.mode;
-  if (mode === "cooperative" || mode === "versus") send({ type: "set-mode", mode });
-});
-
-addBotButton.addEventListener("click", () => send({ type: "add-bot" }));
-seatList.addEventListener("click", (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-remove-bot]");
-  if (button?.dataset.removeBot) send({ type: "remove-bot", playerId: button.dataset.removeBot });
-});
-
-relicChoices.addEventListener("click", (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-relic]");
-  if (!button?.dataset.relic || button.disabled) return;
-  if ((room?.ownRelics.length ?? 0) >= MAX_TABLE_PIECES && !replacementId) {
-    showToast("Select a table piece to clear first.", true);
-    return;
-  }
-  send({
-    type: "pick-relic",
-    relicId: button.dataset.relic,
-    replaceId: replacementId ?? undefined
-  });
-});
-
-tableBench.addEventListener("click", (event) => {
-  const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-replace]");
-  if (!button?.dataset.replace || button.disabled) return;
-  replacementId = button.dataset.replace;
-  audio.play("select");
-  renderIntermission();
-});
-
-readyButton.addEventListener("click", () => send({ type: "ready" }));
-restartButton.addEventListener("click", () => send({ type: "restart" }));
-
-document.addEventListener("keydown", (event) => {
-  const target = event.target as HTMLElement;
-  const inField = target.matches("input, textarea, select");
-  if (event.key === "Escape" && !guideLayer.classList.contains("is-hidden")) {
-    closeGuide();
-    return;
-  }
-  if (inField) {
-    if (event.key === "Enter") {
-      if (target === roomCodeInput && roomCodeInput.value.length === 4) beginJoin();
-      else if (target === playerNameInput && roomCodeInput.value.length === 4) beginJoin();
-      else if (target === playerNameInput) beginCreate();
-    }
-    return;
-  }
-  if (!room || room.phase !== "playing") return;
-  if (/^[1-8]$/.test(event.key)) {
-    const card = orderedHand()[Number(event.key) - 1];
-    if (card) toggleCard(card.id);
-  }
-  if (event.key.toLowerCase() === "r") applyHandSort("rank");
-  if (event.key.toLowerCase() === "s") applyHandSort("suit");
-  if (event.key.toLowerCase() === "d") discardSelected();
-  if (event.key === "Enter") playSelected();
-});
-
-document.addEventListener("pointerdown", () => void audio.unlock(), { once: true });
-
-window.addEventListener("beforeunload", () => {
-  manualClose = true;
-  socket?.close(1000, "Page closed");
-});
-
-if (!localStorage.getItem("ocg-seen-guide")) {
-  howButton.dataset.new = "true";
-  howButton.addEventListener(
-    "click",
-    () => {
-      localStorage.setItem("ocg-seen-guide", "true");
-      delete howButton.dataset.new;
-    },
-    { once: true }
-  );
-}
-
-// Expose the hand ladder in development for quick balancing from the console.
-if (import.meta.env.DEV) Object.assign(window, { OCG_HANDS: HANDS });
+if (queryCode) entryStatus.textContent = `Joining table ${queryCode}—enter your name.`;

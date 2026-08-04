@@ -1,26 +1,25 @@
-# Online Card Game
+# Euchre Table
 
-Online Card Game is an original multiplayer poker roguelite for one to four players. It combines a tactile voxel-style 3D table with server-authoritative rooms, reconnectable sessions, house-player support, procedural sound, and responsive keyboard, pointer, and touch controls.
+Euchre Table is a polished, server-authoritative multiplayer euchre game for exactly four seats. Partners sit across the table. Open seats are filled immediately by capable table bots, and human players can take those seats in the pregame lobby with a four-letter room code.
 
-## Game loop
+The client preserves the project’s tactile voxel-style Three.js identity: sculpted wood rails, deep green felt, physical cards, a moving dealer puck, a brass trump marker, fixed seat geometry, and responsive HUD instrumentation.
 
-- Each player receives eight cards, three scoring hands, and two discards per round.
-- Poker hands score `chips × multiplier`. Changing the previous hand type builds a shared echo chain worth up to `×1.75`.
-- Cooperative contracts combine every player's score against an escalating target.
-- Table Versus gives every seat the same hand budget. The highest personal score wins the round, and the first player to three round wins takes the match.
-- After each successful contract or versus round, every player sets one persistent piece on their table.
-- Every piece is a poker-table object with a scoring rule and a physical 3D result: stacks gain chips, betting plaques rise, card guards light, the call bell winds toward its third ring, and Red Felt relines the entire playing surface.
-- A table holds five pieces. Adding another requires clearing one occupied space, and the removed object's stored state leaves with it.
-- Every third round is a boss contract with a hostile house rule.
-- If a player disconnects, the server preserves their seat and temporarily pilots their remaining hands so the table cannot deadlock.
+## Rules
 
-## Hand management
+- Standard 24-card deck: 9, 10, J, Q, K, A in all four suits.
+- Five cards per player, rotating dealer, upcard, first ordering round, then a second calling round that excludes the turned-down suit.
+- Stick the dealer is enabled: the dealer must name trump in the second round.
+- The right bower is highest. The same-color jack is the left bower, ranks second, and belongs to the trump suit for follow-suit rules.
+- Players must follow the effective led suit when able. The trick winner leads next.
+- A caller may go alone; their partner sits out for that five-trick hand.
+- Makers score 1 for three or four tricks, or 2 for a five-trick march. Defenders score 2 for a euchre. A lone march scores 4; a loner taking three or four scores 1.
+- First team to 10 wins.
 
-- Rank sort orders cards from high to low and keeps equal ranks grouped by suit.
-- Suit sort groups spades, hearts, clubs, and diamonds, with ranks ordered inside each suit.
-- Drag any card across the hand to create a persistent custom order.
-- Selected cards stay selected when sorting, dragging, dealing replacements, or switching sort modes.
-- Number keys always map to the cards' current visual order.
+## Multiplayer architecture
+
+The Node/WebSocket server owns room membership, dealing, bidding, legal actions, trick resolution, scoring, and bot decisions. A reconnecting player resumes the same fixed seat by session token. If a player disconnects during a game, delayed autopilot keeps the table moving without giving away their seat.
+
+Creating a room provisions one human and three bots. Before the first deal, joining humans replace bots in seat order. Every client receives a private `RoomView` containing only its own hand and server-calculated legal card IDs.
 
 ## Local development
 
@@ -32,9 +31,9 @@ npm run dev:server
 npm run dev
 ```
 
-The client runs at `http://localhost:5173` and connects to the local room server on port `8080`.
+The Vite client runs at `http://localhost:5173` and connects to the WebSocket server at `ws://localhost:8080`.
 
-For the production-style build:
+For a production-style run:
 
 ```sh
 npm run build
@@ -45,30 +44,29 @@ npm start
 
 ```sh
 npm test
+npm run build
+npm run qa:protocol
 npm run qa
-npm run qa:versus
 ```
 
-The QA scripts expect a built server running at `http://localhost:8080`. The browser pass opens isolated sessions, validates responsive layout and hand-sort controls, plays a cooperative contract through table-piece placement, and completes a two-player versus round. The versus protocol pass plays an entire first-to-three match and verifies persistent table state, win tallies, and the final match event. Set `QA_URL`, `QA_WS_URL`, or `CHROME_PATH` to override their defaults.
+The QA scripts expect the built server at `http://localhost:8080`. Unit tests cover deck construction, partnerships, both bowers, effective-suit following, trick winners, bot calling support, dealer discard, and every scoring case. Protocol tests cover four fixed seats, bot-seat replacement, start state, resume-in-seat, and rejection of out-of-turn actions. Browser QA covers responsive layout, lobby/join, reload-resume, bidding, card play, five completed tricks, and score presentation.
 
-## Deployment
+## Deployment and herm.cool
 
-The included `Dockerfile` builds the static client and TypeScript room server. `fly.toml` deploys them as one Fly.io app in the Chicago region:
+`Dockerfile` builds the Vite client and WebSocket server together. `fly.toml` deploys the app to Fly.io in Chicago:
 
 ```sh
 flyctl deploy
 ```
 
-The Vite build uses relative asset paths, so `dist/` can also be embedded under another site path or inside an iframe. When hosted on `herm.cool`, the client connects to `wss://online-card-game.fly.dev`.
+The build uses relative static asset paths. When embedded under `herm.cool/games/card/`, the client connects to `wss://online-card-game.fly.dev`; invitations keep the room code in the embedded page URL.
 
 ## Controls
 
-- `1`–`8`: select or unselect a card
-- `Enter`: play the selected hand
-- `D`: discard the selected cards
-- `R`: sort the hand by rank
-- `S`: sort the hand by suit
-- Drag a card: switch to a custom hand order
+- Pointer/touch: select any raised legal card; use the visible bid controls.
+- `1`–`5`: play the corresponding legal card in your hand.
+- `P`: pass when passing is available.
+- `Esc`: close the rules panel.
 
 ## License
 

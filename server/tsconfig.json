@@ -13,5 +13,5 @@
     "types": ["node"]
   },
   "include": ["./**/*.ts", "../shared/**/*.ts"],
-  "exclude": ["../shared/**/*.test.ts"]
+  "exclude": ["../shared/**/*.test.ts", "./**/*.test.ts"]
 }
