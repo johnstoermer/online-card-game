@@ -27,6 +27,9 @@ for (const [label, page] of [["host", host], ["guest", guest], ["mobile", mobile
 }
 
 async function isVisible(locator) { return locator.isVisible().catch(() => false); }
+async function dismissPortalLogin(page) {
+  await page.locator("herm-login-prompt").evaluate((prompt) => prompt.remove()).catch(() => {});
+}
 
 async function actIfTurn(page) {
   if (!(await isVisible(page.locator(".seat-row.is-self.is-turn")))) return false;
@@ -44,12 +47,14 @@ async function actIfTurn(page) {
 
 try {
   await host.goto(baseUrl, { waitUntil: "networkidle" });
+  await dismissPortalLogin(host);
   await host.locator("#game-title").waitFor();
   await host.locator("#play-now-button:enabled").waitFor();
   await host.screenshot({ path: "test-results/euchre-home.png", fullPage: true });
   if (!(await host.title()).includes("Euchre")) throw new Error("The euchre title is missing from the home page.");
 
   await mobile.goto(baseUrl, { waitUntil: "networkidle" });
+  await dismissPortalLogin(mobile);
   await mobile.locator("#play-now-button:enabled").waitFor();
   const overflow = await mobile.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
   if (overflow) throw new Error("Mobile home overflows horizontally.");
@@ -71,6 +76,7 @@ try {
   if (await host.locator(".lobby-seat").count() !== 4) throw new Error("Room did not open with four seats.");
 
   await guest.goto(`${baseUrl}/?room=${code}`, { waitUntil: "networkidle" });
+  await dismissPortalLogin(guest);
   await guest.locator("#player-name").fill("Theo");
   await guest.locator("#join-button").click();
   await guest.locator("#lobby-modal:not(.is-hidden)").waitFor();
@@ -83,6 +89,7 @@ try {
   await host.screenshot({ path: "test-results/euchre-first-bid.png", fullPage: true });
 
   await guest.reload({ waitUntil: "networkidle" });
+  await dismissPortalLogin(guest);
   await guest.locator("#game-screen:not(.is-hidden)").waitFor();
   await guest.locator("#modal-layer").waitFor({ state: "hidden" });
 
@@ -97,6 +104,7 @@ try {
   for (let index = 0; index < matchPages.length; index += 1) {
     const page = matchPages[index];
     await page.goto(baseUrl, { waitUntil: "networkidle" });
+    await dismissPortalLogin(page);
     await page.locator("#play-now-button:enabled").waitFor();
     await page.locator("#player-name").fill(`Match ${index + 1}`);
     await page.locator("#play-now-button").click();
